@@ -7,6 +7,12 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.URLEncoder
+import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -22,12 +28,6 @@ import org.schabi.newpipe.extractor.stream.StreamType
 import org.schabi.newpipe.extractor.stream.VideoStream
 import org.schabi.newpipe.player.helper.PlayerDataSource
 import org.schabi.newpipe.player.mediaitem.StreamInfoTag
-import java.net.InetAddress
-import java.net.ServerSocket
-import java.net.URLEncoder
-import java.util.UUID
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class NiconicoPlaybackTest {
@@ -92,7 +92,9 @@ class NiconicoPlaybackTest {
                                             "#EXT-X-KEY:METHOD=AES-128,URI=\"key\",IV=0x00000000000000000000000000000000\n" +
                                             "#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"
                                         ).toByteArray()
+
                                     path.endsWith("key") -> ByteArray(16)
+
                                     else -> ByteArray(256)
                                 }
                                 socket.getOutputStream().apply {

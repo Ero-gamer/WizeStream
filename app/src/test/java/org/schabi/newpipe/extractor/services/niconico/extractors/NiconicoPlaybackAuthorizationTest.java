@@ -27,10 +27,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.DeflaterOutputStream;
 
 public class NiconicoPlaybackAuthorizationTest {
     private static final String AUDIO = "https://cdn.example/audio-aac-192kbps.m3u8?token=a";
@@ -119,6 +121,36 @@ public class NiconicoPlaybackAuthorizationTest {
         assertEquals("domand_bid=second", cookie(3));
         assertTrue(extractor.getVideoOnlyStreams().get(0).getContent()
                 .contains("cookie=domand_bid%3Dsecond"));
+    }
+
+    @Test
+    public void brotliMasterPlaylistKeepsItsFinalVideoVariant() throws Exception {
+        responses.add(response(200, Map.of("Set-Cookie", List.of("domand_bid=fresh")), ACCESS));
+        // The MASTER fixture compressed with Brotli, including real line separators.
+        final byte[] compressed = Base64.getDecoder().decode(
+                "G60AAGRgnn0lblVyhC66wYFDVuBZIpuO9rbZHmPHtkUokNPXCdUAvCE9kjh2YIj1"
+                + "kDuK0dhBBjdloIDH9/v8Tebljq5AWOQFMo4zQgjkZXp+0Bv147VqrIyg6KyqS8dI"
+                + "kCB1RdNI7S6wa185bovjOKANWx/kIFkaIXAef4J/");
+        responses.add(new Response(200, "", Map.of("Content-Encoding", List.of("br")),
+                "", compressed, ""));
+        extractor.onFetchPage(downloader);
+        assertEquals(1, extractor.getVideoOnlyStreams().size());
+        assertEquals(1, extractor.getAudioStreams().size());
+    }
+
+    @Test
+    public void deflatePlaylistAndLoggedInCookieAreSupported() throws Exception {
+        ServiceList.NicoNico.setTokens("user_session=login;");
+        responses.add(response(200, Map.of("Set-Cookie", List.of("domand_bid=fresh")), ACCESS));
+        final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DeflaterOutputStream deflate = new DeflaterOutputStream(bytes)) {
+            deflate.write(MASTER.getBytes(StandardCharsets.UTF_8));
+        }
+        responses.add(new Response(200, "", Map.of("Content-Encoding", List.of("deflate")),
+                "", bytes.toByteArray(), ""));
+        extractor.onFetchPage(downloader);
+        assertEquals("user_session=login;domand_bid=fresh", cookie(1));
+        assertEquals(1, extractor.getVideoOnlyStreams().size());
     }
 
     @Test
