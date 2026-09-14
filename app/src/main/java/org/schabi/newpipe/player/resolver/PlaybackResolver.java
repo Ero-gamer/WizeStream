@@ -360,9 +360,30 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
             throws ResolverException {
         if (stream.isUrl()) {
             throwResolverExceptionIfUrlNullOrEmpty(stream.getContent());
-            return dataSource.getHlsMediaSourceFactory(null).createMediaSource(
+            Uri uri = Uri.parse(stream.getContent());
+            final HlsMediaSource.Factory factory;
+            if (metadata.getServiceId() == ServiceList.NicoNico.getServiceId()) {
+                // The extractor transports cookies in the fragment, which is never an HTTP header.
+                // Decode the cookie parameter separately so encoded '&' and '+' stay intact.
+                final String cookie;
+                try {
+                    cookie = new Uri.Builder().encodedQuery(uri.getEncodedFragment()).build()
+                            .getQueryParameter("cookie");
+                } catch (final IllegalArgumentException e) {
+                    throw new ResolverException("Invalid NicoNico playback cookie");
+                }
+                if (cookie == null || cookie.isEmpty()
+                        || cookie.indexOf('\r') >= 0 || cookie.indexOf('\n') >= 0) {
+                    throw new ResolverException("Missing or invalid NicoNico playback cookie");
+                }
+                factory = dataSource.getNiconicoHlsMediaSourceFactory(cookie);
+                uri = uri.buildUpon().fragment(null).build();
+            } else {
+                factory = dataSource.getHlsMediaSourceFactory(null);
+            }
+            return factory.createMediaSource(
                     metadata.asMediaItem().buildUpon()
-                            .setUri(Uri.parse(stream.getContent()))
+                            .setUri(uri)
                             .setCustomCacheKey(cacheKey)
                             .build());
         }

@@ -61,6 +61,30 @@ public class NiconicoParsingTest {
     }
 
     @Test
+    public void masterPlaylistRetainsEveryVariantIncludingTheLastAtEndOfFile() {
+        final String master = "#EXTM3U\n"
+                + "#EXT-X-STREAM-INF:BANDWIDTH=1000000\n"
+                + "https://cdn.example/video-low.m3u8?token=low\n"
+                + "#EXT-X-STREAM-INF:BANDWIDTH=2000000\n"
+                + "https://cdn.example/video-high.m3u8?token=high";
+        final List<String> expected = List.of(
+                "https://cdn.example/video-low.m3u8?token=low#cookie=domand_bid%3Dabc&length=30",
+                "https://cdn.example/video-high.m3u8?token=high#cookie=domand_bid%3Dabc&length=30");
+
+        assertEquals(expected, M3U8Parser.parseMasterM3U8(master, "domand_bid=abc", 30)
+                .get("video"));
+        assertEquals(expected, M3U8Parser.parseMasterM3U8(
+                master.replace("\n", ""), "domand_bid=abc", 30).get("video"));
+    }
+
+    @Test
+    public void singleVariantWithoutQueryOrTrailingTagIsRetained() {
+        assertEquals(List.of("https://cdn.example/video.m3u8#cookie=domand_bid%3Dabc&length=30"),
+                M3U8Parser.parseMasterM3U8("#EXTM3U\nhttps://cdn.example/video.m3u8\n",
+                        "domand_bid=abc", 30).get("video"));
+    }
+
+    @Test
     public void emptyMasterPlaylistProducesNoSyntheticTracks() {
         final Map<String, List<String>> parsed = M3U8Parser.parseMasterM3U8(
                 "#EXTM3U\n#EXT-X-VERSION:3", "session=test", 0L);

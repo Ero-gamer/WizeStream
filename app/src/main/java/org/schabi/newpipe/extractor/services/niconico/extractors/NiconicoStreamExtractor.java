@@ -1,7 +1,6 @@
 package org.schabi.newpipe.extractor.services.niconico.extractors;
 
 import com.grack.nanojson.*;
-import org.json.JSONObject;
 
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -19,7 +18,6 @@ import org.schabi.newpipe.extractor.linkhandler.LinkHandler;
 import org.schabi.newpipe.extractor.services.niconico.M3U8Parser;
 import org.schabi.newpipe.extractor.services.niconico.NicoWebSocketClient;
 import org.schabi.newpipe.extractor.services.niconico.NiconicoService;
-import org.schabi.newpipe.extractor.services.bilibili.utils;
 import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.DeliveryMethod;
 import org.schabi.newpipe.extractor.stream.Description;
@@ -32,11 +30,12 @@ import org.schabi.newpipe.extractor.utils.Utils;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.IOException;
 import java.util.zip.GZIPInputStream;
-import java.util.zip.GZIPInputStream;
+import java.util.zip.InflaterInputStream;
+
+import org.brotli.dec.BrotliInputStream;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -72,18 +71,35 @@ public class NiconicoStreamExtractor extends StreamExtractor {
         this.niconicoWatchDataCache = niconicoWatchDataCache;
     }
 
-    static String decompressGzip(byte[] compressed) throws IOException {
-        ByteArrayInputStream bis = new ByteArrayInputStream(compressed);
-        GZIPInputStream gis = new GZIPInputStream(bis);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = gis.read(buffer)) > 0) {
-            bos.write(buffer, 0, len);
+    private static String readResponseBody(final Response response) throws IOException {
+        final String encoding = response.getHeader("Content-Encoding");
+        if (encoding == null || encoding.isEmpty() || "identity".equalsIgnoreCase(encoding)) {
+            return response.responseBody();
         }
-        gis.close();
-        bos.close();
-        return bos.toString("UTF-8");
+        final InputStream raw = new ByteArrayInputStream(response.rawResponseBody());
+        final InputStream decoded;
+        switch (encoding.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "gzip":
+                decoded = new GZIPInputStream(raw);
+                break;
+            case "br":
+                decoded = new BrotliInputStream(raw);
+                break;
+            case "deflate":
+                decoded = new InflaterInputStream(raw);
+                break;
+            default:
+                throw new IOException("Unsupported NicoNico response encoding");
+        }
+        try (InputStream input = decoded;
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            final byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                output.write(buffer, 0, count);
+            }
+            return output.toString(StandardCharsets.UTF_8.name());
+        }
     }
 
     @Override
@@ -227,6 +243,7 @@ public class NiconicoStreamExtractor extends StreamExtractor {
             String id = RegexUtils.extract(audio, "audio-(.*?)-\\d+kbps");
             audioStreams.add(new AudioStream.Builder().setId("Niconico-" + getId() + "-audio")
                     .setContent(audio, true)
+                    .setDeliveryMethod(DeliveryMethod.HLS)
                     .setMediaFormat(MediaFormat.M4A).setQuality(id.split("-")[2].split("kbps")[0]).build());
         }
         return audioStreams;
@@ -402,6 +419,8 @@ public class NiconicoStreamExtractor extends StreamExtractor {
             return;
         }
         watch = niconicoWatchDataCache.refreshAndGetWatchData(downloader, getId());
+        page = niconicoWatchDataCache.getLastPage();
+        type = niconicoWatchDataCache.getLastWatchDataType();
         niconicoWatchDataCache.setStartAt(-1);
         niconicoWatchDataCache.setThreadServer(null);
 
@@ -417,55 +436,80 @@ public class NiconicoStreamExtractor extends StreamExtractor {
                     .value(audioResolutionName)
                     .end();
         }
-//        Response preFetch = downloader.options("https://nvapi.nicovideo.jp/v1/watch/"+ getId() +"/access-rights/hls?actionTrackId=" + watch.getObject("client").getString("watchTrackId"), NiconicoService.getPreFetchStreamHeaders());
-        String resolutionObjectString = resolutionObject.end().end().done();
-        Response response = null;
-        try {
-            Map<String, List<String>> headers = NiconicoService.getStreamSourceHeaders(watch.getObject("media").getObject("domand").getString("accessRightKey"));
+        final byte[] requestBody = resolutionObject.end().end().done()
+                .getBytes(StandardCharsets.UTF_8);
+        fetchStreamSources(downloader, requestBody);
+    }
+
+    private void fetchStreamSources(final Downloader downloader, final byte[] requestBody)
+            throws IOException, ExtractionException {
+        final String accessUrl = "https://nvapi.nicovideo.jp/v1/watch/" + getId()
+                + "/access-rights/hls?actionTrackId="
+                + watch.getObject("client").getString("watchTrackId");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            final Map<String, List<String>> headers = NiconicoService.getStreamSourceHeaders(
+                    watch.getObject("media").getObject("domand").getString("accessRightKey"));
             headers.put("Cookie", Collections.singletonList(niconicoWatchDataCache.getStreamCookie()));
-            response = downloader.post("https://nvapi.nicovideo.jp/v1/watch/" + getId() + "/access-rights/hls?actionTrackId=" + watch.getObject("client").getString("watchTrackId"), headers, resolutionObjectString.getBytes(StandardCharsets.UTF_8));
-            if (response.responseCode() / 100 != 2) {
+            final Response access = downloader.post(accessUrl, headers, requestBody);
+            if (access.responseCode() / 100 != 2) {
                 niconicoWatchDataCache.invalidate();
-                throw new ExtractionException("Token expired. Please retry.");
-            }
-            Matcher matcher = Pattern.compile("(domand_bid=[^;]+)").matcher(response.responseHeaders().get("Set-Cookie").get(0));
-            matcher.find();
-            String responseBody2 = response.responseBody();
-            if (response.getHeader("Content-Encoding") != null && response.getHeader("Content-Encoding").contains("gzip")) {
-                try {
-                    responseBody2 = decompressGzip(response.rawResponseBody());
-                } catch (IOException e) {
-                    throw new RuntimeException("Failed to decompress gzip response", e);
-                }
-            }
-            response = downloader.get(new JSONObject(responseBody2).getJSONObject("data").getString("contentUrl"), NiconicoService.getStreamHeaders(niconicoWatchDataCache.getStreamCookie()));
-            if (response.responseCode() / 100 == 2) {
-                streamSources = M3U8Parser.parseMasterM3U8(utils.decompressBrotli(response.rawResponseBody()), niconicoWatchDataCache.getStreamCookie(), getLength());
-            }
-            niconicoWatchDataCache.setStreamCookie(matcher.group(0));
-            headers.put("Cookie", Collections.singletonList(niconicoWatchDataCache.getStreamCookie()));
-            if (response.responseCode() / 100 != 2) {
-                response = downloader.post("https://nvapi.nicovideo.jp/v1/watch/" + getId() + "/access-rights/hls?actionTrackId=" + watch.getObject("client").getString("watchTrackId"), headers, resolutionObjectString.getBytes(StandardCharsets.UTF_8));
-                String responseBody = response.responseBody();
-                if (response.getHeader("Content-Encoding") != null && response.getHeader("Content-Encoding").contains("gzip")) {
-                    try {
-                        responseBody = decompressGzip(response.rawResponseBody());
-                    } catch (IOException e) {
-                        throw new RuntimeException("Failed to decompress gzip response", e);
-                    }
-                }
-                response = downloader.get(new JSONObject(responseBody).getJSONObject("data").getString("contentUrl"), NiconicoService.getStreamHeaders(niconicoWatchDataCache.getStreamCookie()));
-                if (response.responseCode() / 100 != 2) {
-                    throw new ParsingException("Failed to get stream source");
-                }
-                streamSources = M3U8Parser.parseMasterM3U8(utils.decompressBrotli(response.rawResponseBody()), niconicoWatchDataCache.getStreamCookie(), getLength());
+                throw new ExtractionException("NicoNico playback authorization failed (HTTP "
+                        + access.responseCode() + "). Please retry.");
             }
 
-        } catch (Exception e) {
-            throw new RuntimeException(e);
+            // Apply every new authorization response before its first playlist request, including
+            // retries. Keep this snapshot for the returned tracks if the shared cache later changes.
+            final String cookie = updateStreamCookie(access);
+            final String contentUrl;
+            try {
+                contentUrl = JsonParser.object().from(readResponseBody(access))
+                        .getObject("data").getString("contentUrl");
+            } catch (JsonParserException e) {
+                throw new ParsingException("Invalid NicoNico playback authorization response", e);
+            }
+            if (Utils.isNullOrEmpty(contentUrl)) {
+                throw new ParsingException("Missing NicoNico playlist URL");
+            }
+            final Response master = downloader.get(contentUrl,
+                    NiconicoService.getStreamHeaders(cookie));
+            if (master.responseCode() / 100 == 2) {
+                streamSources = M3U8Parser.parseMasterM3U8(
+                        readResponseBody(master), cookie, getLength());
+                if (Utils.isNullOrEmpty(streamSources.get("video"))) {
+                    throw new ParsingException("No video tracks in NicoNico playlist");
+                }
+                return;
+            }
+            if (attempt == 1) {
+                niconicoWatchDataCache.invalidate();
+                throw new ParsingException("Failed to get NicoNico playlist (HTTP "
+                        + master.responseCode() + ")");
+            }
         }
-        page = niconicoWatchDataCache.getLastPage();
-        type = niconicoWatchDataCache.getLastWatchDataType();
+    }
+
+    private String updateStreamCookie(final Response response) throws ParsingException {
+        final Pattern cookiePattern = Pattern.compile("(?:^|,\\s*)(domand_bid=[^;,\\s]*)");
+        for (Map.Entry<String, List<String>> header : response.responseHeaders().entrySet()) {
+            if (!"Set-Cookie".equalsIgnoreCase(header.getKey())) {
+                continue;
+            }
+            for (String value : header.getValue()) {
+                final Matcher matcher = cookiePattern.matcher(value);
+                while (matcher.find()) {
+                    final String cookie = matcher.group(1);
+                    niconicoWatchDataCache.setStreamCookie(cookie);
+                    if (cookie.equals("domand_bid=")) {
+                        throw new ParsingException("NicoNico playback cookie expired");
+                    }
+                }
+            }
+        }
+        final String cookie = niconicoWatchDataCache.getStreamCookie();
+        if (!Pattern.compile("(?:^|;\\s*)domand_bid=[^;\\s]+").matcher(cookie).find()) {
+            throw new ParsingException("Missing NicoNico playback cookie");
+        }
+        return cookie;
     }
 
     @Nonnull

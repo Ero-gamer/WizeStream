@@ -71,6 +71,9 @@ public class PlayerDataSource {
 
 
     private final int progressiveLoadIntervalBytes;
+    private final Context context;
+    @Nullable
+    private final TransferListener transferListener;
 
     // Generic Data Source Factories (without or with cache)
     private final DataSource.Factory cachelessDataSourceFactory;
@@ -86,7 +89,8 @@ public class PlayerDataSource {
 
     public PlayerDataSource(final Context context,
                             final TransferListener transferListener) {
-
+        this.context = context.getApplicationContext();
+        this.transferListener = transferListener;
         progressiveLoadIntervalBytes = PlayerHelper.getProgressiveLoadIntervalBytes(context);
 
         // make sure the static cache was created: needed by CacheFactories below
@@ -166,6 +170,19 @@ public class PlayerDataSource {
         return new DashMediaSource.Factory(
                 getDefaultDashChunkSourceFactory(cacheDataSourceFactory),
                 cacheDataSourceFactory);
+    }
+
+    public HlsMediaSource.Factory getNiconicoHlsMediaSourceFactory(final String cookie) {
+        // Each media source owns its cookie, including playlist, segment and AES key requests.
+        // Do not mutate a shared HTTP factory: another queued video may have a different session.
+        final DefaultHttpDataSource.Factory httpFactory = new DefaultHttpDataSource.Factory()
+                .setUserAgent(DownloaderImpl.USER_AGENT)
+                .setDefaultRequestProperties(Map.of(
+                        "Cookie", cookie,
+                        "Referer", "https://www.nicovideo.jp/",
+                        "Origin", "https://www.nicovideo.jp"));
+        return new HlsMediaSource.Factory(
+                new CacheFactory(context, transferListener, cache, httpFactory));
     }
 
     public ProgressiveMediaSource.Factory getProgressiveMediaSourceFactory() {
