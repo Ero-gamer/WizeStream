@@ -16,7 +16,10 @@ public class M3U8Parser {
         // Pattern to match audio playlist
         Pattern audioPattern = Pattern.compile("#EXT-X-MEDIA:TYPE=AUDIO.*?URI=\"(.*?)\"");
         // Pattern to match video playlist with resolution
-        Pattern videoPattern = Pattern.compile("https://[^\"]+\\.m3u8\\?[^\\s\"]+(?=#)");
+        // PipePipeExtractor 6a62b7d: the final variant can end at EOF without a following tag.
+        // Also retain line boundaries and stop before the next tag in flattened playlists.
+        Pattern videoPattern = Pattern.compile(
+                "https://[^\\s\"#]+\\.m3u8(?:\\?[^\\s\"#]*)?(?=\\s|#|$)");
 
         Matcher audioMatcher = audioPattern.matcher(masterContent);
         // Find and add audio playlists
