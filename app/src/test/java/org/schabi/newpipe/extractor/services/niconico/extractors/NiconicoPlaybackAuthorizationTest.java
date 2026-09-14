@@ -15,6 +15,7 @@ import org.junit.Before;
 import org.junit.Test;
 import org.schabi.newpipe.extractor.NewPipe;
 import org.schabi.newpipe.extractor.ServiceList;
+import org.schabi.newpipe.extractor.downloader.CancellableCall;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.downloader.Request;
 import org.schabi.newpipe.extractor.downloader.Response;
@@ -51,6 +52,11 @@ public class NiconicoPlaybackAuthorizationTest {
                 throw new IOException("Unexpected extra request");
             }
             return responses.remove();
+        }
+
+        @Override
+        public CancellableCall executeAsync(final Request request, final AsyncCallback callback) {
+            throw new AssertionError("Only synchronous authorization requests are expected");
         }
     };
     private Downloader previousDownloader;
