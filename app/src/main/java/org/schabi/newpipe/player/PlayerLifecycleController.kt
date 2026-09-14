@@ -19,6 +19,7 @@ import org.schabi.newpipe.player.helper.LoadController
 import org.schabi.newpipe.player.helper.PlayerHelper
 import org.schabi.newpipe.player.playback.MediaSourceManager
 import org.schabi.newpipe.player.playqueue.PlayQueue
+import org.schabi.newpipe.player.playqueue.PlayQueueItem
 import org.schabi.newpipe.player.ui.PlayerUi
 
 /** Owns player-engine lifecycle, queue-manager lifetime, and recovery positions. */
@@ -70,6 +71,32 @@ internal class PlayerLifecycleController(
         player.applyPlayerVolume()
         player.notifyQueueUpdateToListeners()
         player.notifySleepTimerUpdateToListeners()
+    }
+
+    /** Replace only the engine; keep queue ordering, pause state and the running sleep timer. */
+    fun restartForVideoAdjustments() {
+        val queue = player.playQueue ?: return
+        val previous = player.getExoPlayer() ?: return
+        val playOnReady = previous.playWhenReady
+        val parameters = previous.playbackParameters
+        val skipSilence = previous.skipSilenceEnabled
+        val repeatMode = previous.repeatMode
+        val shuffle = previous.shuffleModeEnabled
+        if (!previous.currentTimeline.isEmpty && queue.item?.recoveryPosition == PlayQueueItem.RECOVERY_UNSET) {
+            queue.setRecovery(queue.index, previous.currentPosition.coerceAtLeast(0))
+        }
+        destroyPlayer(preserveQueue = true)
+        initPlayer(playOnReady)
+        player.exoPlayer.apply {
+            playbackParameters = parameters
+            skipSilenceEnabled = skipSilence
+            this.repeatMode = repeatMode
+            shuffleModeEnabled = shuffle
+        }
+        reloadPlayQueueManager()
+        player.UIs().call(PlayerUi::initPlayback)
+        player.applyPlayerVolume()
+        player.notifyPlaybackUpdateToListeners()
     }
 
     fun destroy() {
@@ -125,6 +152,7 @@ internal class PlayerLifecycleController(
             .setUsePlatformDiagnostics(false)
             .build()
         player.setExoPlayerForLifecycle(exoPlayer)
+        player.videoAdjustments.attach(exoPlayer)
         exoPlayer.addListener(player)
         exoPlayer.playWhenReady = playOnReady
         exoPlayer.setSeekParameters(PlayerHelper.getSeekParameters(context))
@@ -137,7 +165,7 @@ internal class PlayerLifecycleController(
         player.updateAudioTunneling()
     }
 
-    private fun destroyPlayer() {
+    private fun destroyPlayer(preserveQueue: Boolean = false) {
         if (Player.DEBUG) Log.d(Player.TAG, "destroyPlayer() called")
         errorController.resetRecovery()
         historyController.stopLearningSession()
@@ -145,6 +173,7 @@ internal class PlayerLifecycleController(
         // Stop receiving playback errors before UIs detach their video surfaces. Media3 may report
         // a surface-detach timeout while the player is deliberately shutting down; surfacing that
         // expected teardown failure would show an erroneous playback error to the user.
+        player.videoAdjustments.detach()
         exoPlayer?.removeListener(player)
         player.UIs().call(PlayerUi::destroyPlayer)
         audioController.releaseAudioSession()
@@ -157,7 +186,7 @@ internal class PlayerLifecycleController(
             }
         }
         if (player.isProgressLoopRunning) player.stopProgressLoop()
-        player.playQueue?.dispose()
+        if (!preserveQueue) player.playQueue?.dispose()
         player.audioReactor?.dispose()
         playQueueManager?.dispose()
     }
