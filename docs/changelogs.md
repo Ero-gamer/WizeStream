@@ -4,6 +4,24 @@ Release history is listed newest first. The number beside each release is its An
 
 ## Unreleased
 
+## WizeStream 1.31.5 (`1031005`)
+
+### Improvements
+
+- Added Cyan to the theme color options for light, dark, and AMOLED themes.
+- Made Auto list view use Card view unless the active layout selects a large landscape grid.
+- Added monthly search collection for a selected year, with a shared page limit, cancellation, and duplicate removal.
+- Added adaptive two-pane Settings and Learning overview layouts in windows at least 840 dp wide.
+- Reduced YouTube loading overhead by overlapping independent metadata requests with playback extraction and replacing CPU polling with completion waits.
+- Removed the recurring Keep Android Open startup dialog.
+
+### Fixes
+
+- Kept the selected Learning lesson during player reconnection.
+- Attached DeX and desktop player dialogs to the player window to improve their visibility.
+- Added one stream URL refresh for sustained live HLS buffering stalls while preserving playback position and pause state.
+- Fixed asynchronous response completion races and preserved live timing when metadata arrives before playback selection.
+
 ## WizeStream 1.31.4 (`1031004`)
 
 ### Improvements
