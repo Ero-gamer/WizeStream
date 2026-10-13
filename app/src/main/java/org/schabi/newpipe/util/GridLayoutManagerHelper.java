@@ -101,6 +101,18 @@ public final class GridLayoutManagerHelper {
         }
     }
 
+    /**
+     * Discards layouts inflated under the previous resource configuration.
+     * @param recyclerView the list whose holders should be recreated
+     */
+    public static void reinflateViewHolders(@NonNull final RecyclerView recyclerView) {
+        final RecyclerView.Adapter<?> adapter = recyclerView.getAdapter();
+        // Detach first: attached and cached holders are recycled into the pool during this call.
+        recyclerView.setAdapter(null);
+        recyclerView.getRecycledViewPool().clear();
+        recyclerView.setAdapter(adapter);
+    }
+
     public static int getPreferredSpanCount(@NonNull final Context context) {
         final String value = ThemeHelper.getOrientationPreference(context,
                 R.string.grid_columns_key,
