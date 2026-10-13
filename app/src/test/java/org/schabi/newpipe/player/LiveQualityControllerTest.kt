@@ -21,6 +21,24 @@ class LiveQualityControllerTest {
     }
 
     @Test
+    fun displaysActualResolutionWithoutInventingUnknownSizes() {
+        assertNull(LiveQualityController.resolutionFromFormat(null))
+        assertNull(LiveQualityController.resolutionFromFormat(Format.Builder().build()))
+        assertEquals(
+            "720p",
+            LiveQualityController.resolutionFromFormat(
+                Format.Builder().setHeight(720).setFrameRate(30f).build()
+            )
+        )
+        assertEquals(
+            "1080p60",
+            LiveQualityController.resolutionFromFormat(
+                Format.Builder().setHeight(1080).setFrameRate(59.94f).build()
+            )
+        )
+    }
+
+    @Test
     fun ignoresFormatsWithoutVideoHeight() {
         val format = Format.Builder()
             .setCodecs("avc1.640028")

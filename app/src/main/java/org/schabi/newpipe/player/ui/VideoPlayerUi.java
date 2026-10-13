@@ -122,6 +122,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
     private final DanmakuController danmakuController;
     private final Handler controlsVisibilityHandler = new Handler(Looper.getMainLooper());
     private long lastTvBackPressedAt;
+    private final PlayerQualityFeedback qualityFeedback;
     @Nullable
     private SurfaceHolderCallback surfaceHolderCallback;
     @Nullable
@@ -170,6 +171,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
         bottomPlayerControls = new BottomPlayerControls(binding);
         playerUiTheme = new PlayerUiTheme(context, binding.playbackSeekBar);
         danmakuController = new DanmakuController(player, binding);
+        qualityFeedback = new PlayerQualityFeedback(player);
         setupFromView();
         player.getCurrentStreamInfo().ifPresent(danmakuController::onMetadataChanged);
     }
@@ -296,6 +298,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
     }
 
     protected void deinitListeners() {
+        qualityFeedback.reset();
         binding.getRoot().removeOnAttachStateChangeListener(popupAnchorListener);
         binding.qualityTextView.setOnClickListener(null);
         binding.audioTrackTextView.setOnClickListener(null);
@@ -910,6 +913,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
         super.onMediaItemTransition();
         binding.surfaceView.clearAspectRatio();
         danmakuController.reset();
+        qualityFeedback.reset();
     }
 
     @Override
@@ -1458,6 +1462,7 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
 
     private void onQualityItemClick(@NonNull final MenuItem menuItem) {
         if (player.isLiveQualityPlayback()) {
+            qualityFeedback.reset();
             final String label = player.selectLiveQuality(menuItem.getItemId());
             if (label != null) {
                 binding.qualityTextView.setText(label);
@@ -1589,46 +1594,20 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
             return;
         }
 
-        final String currentResolution = currentTracks == null
+        final String playingResolution = player.exoPlayerIsNull() ? null
+                : LiveQualityController.resolutionFromFormat(
+                        player.getExoPlayer().getVideoFormat());
+        final String currentResolution = playingResolution != null ? playingResolution
+                : currentTracks == null
                 ? player.getSelectedVideoStream()
                         .map(VideoStream::getResolution)
                         .orElse(null)
-                : selectedAdaptiveResolution(currentTracks);
+                : qualityFeedback.selectedAdaptiveResolution(currentTracks);
         binding.qualityTextView.setText(currentResolution == null
                 ? context.getString(R.string.auto)
                 : context.getString(R.string.auto) + " · " + currentResolution);
     }
 
-    @Nullable
-    private String selectedAdaptiveResolution(@NonNull final Tracks currentTracks) {
-        @Nullable final MediaItemTag metadata = player.getCurrentMetadata();
-        if (metadata == null || metadata.getMaybeQuality().isEmpty()) {
-            return null;
-        }
-
-        final List<VideoStream> streams =
-                metadata.getMaybeQuality().get().getSortedVideoStreams();
-        for (final Tracks.Group group : currentTracks.getGroups()) {
-            if (group.getType() != C.TRACK_TYPE_VIDEO || !group.isSelected()) {
-                continue;
-            }
-            for (int index = 0; index < group.length; index++) {
-                if (!group.isTrackSelected(index)) {
-                    continue;
-                }
-                final String formatId = group.getMediaTrackGroup().getFormat(index).id;
-                if (formatId == null) {
-                    continue;
-                }
-                for (final VideoStream stream : streams) {
-                    if (formatId.equals(Integer.toString(stream.getItag()))) {
-                        return stream.getResolution();
-                    }
-                }
-            }
-        }
-        return null;
-    }
     /*//////////////////////////////////////////////////////////////////////////
     // Captions (text tracks)
     //////////////////////////////////////////////////////////////////////////*/
@@ -1864,6 +1843,11 @@ public abstract class VideoPlayerUi extends PlayerUi implements SeekBar.OnSeekBa
     public void onVideoSizeChanged(@NonNull final VideoSize videoSize) {
         super.onVideoSizeChanged(videoSize);
         applyVideoAspectRatio(videoSize);
+        if (videoSize.width <= 0 || videoSize.height <= 0) {
+            return;
+        }
+        updateQualityLabel(null);
+        qualityFeedback.onVideoSizeChanged(videoSize, binding.getRoot());
     }
 
     private void applyVideoAspectRatio(@NonNull final VideoSize videoSize) {

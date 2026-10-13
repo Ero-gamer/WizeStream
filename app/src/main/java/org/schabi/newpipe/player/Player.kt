@@ -719,6 +719,8 @@ class Player(
 
     fun isLiveQualityPlayback(): Boolean = liveQualityController.isLivePlayback
 
+    fun isAutoLiveQualitySelected(): Boolean = liveQualityController.isAutoSelected
+
     fun hasSelectableLiveQualities(): Boolean = liveQualityController.hasSelectableOptions()
 
     fun getLiveQualityOptions(): List<LiveQualityController.Option> = liveQualityController.options

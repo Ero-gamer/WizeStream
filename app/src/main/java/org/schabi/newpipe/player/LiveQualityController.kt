@@ -68,8 +68,20 @@ class LiveQualityController(private val player: Player) {
                 (metadata == null || metadata.maybeQuality.isEmpty)
         }
 
+    val isAutoSelected: Boolean
+        get() = selected == null
+
     val currentLabel: String
-        get() = selected?.label ?: player.context.getString(R.string.auto)
+        get() {
+            selected?.let { return it.label }
+            val auto = player.context.getString(R.string.auto)
+            val resolution = if (player.exoPlayerIsNull()) {
+                null
+            } else {
+                resolutionFromFormat(player.exoPlayer.videoFormat)
+            }
+            return if (resolution == null) auto else "$auto · $resolution"
+        }
 
     fun hasSelectableOptions(): Boolean = isLivePlayback && options.size > 1
 
@@ -235,6 +247,18 @@ class LiveQualityController(private val player: Player) {
     }
 
     companion object {
+        @JvmStatic
+        fun resolutionFromFormat(format: Format?): String? {
+            if (format == null || format.height <= 0) return null
+            val frameRate = format.frameRate
+            val suffix = if (frameRate.isFinite() && frameRate > 30) {
+                frameRate.roundToInt().toString()
+            } else {
+                ""
+            }
+            return "${format.height}p$suffix"
+        }
+
         @JvmStatic
         fun optionFromFormat(format: Format): Option? {
             if (format.height <= 0) {
