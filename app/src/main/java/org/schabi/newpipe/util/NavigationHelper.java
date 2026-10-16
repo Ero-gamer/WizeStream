@@ -57,6 +57,7 @@ import org.schabi.newpipe.local.history.StatisticsPlaylistFragment;
 import org.schabi.newpipe.local.media.LocalMediaFragment;
 import org.schabi.newpipe.local.playlist.LocalPlaylistFragment;
 import org.schabi.newpipe.local.subscription.SubscriptionFragment;
+import org.schabi.newpipe.local.subscription.GroupChannelsFragment;
 import org.schabi.newpipe.local.subscription.SubscriptionsImportFragment;
 import org.schabi.newpipe.learning.LearningDashboardFragment;
 import org.schabi.newpipe.player.PlayQueueActivity;
@@ -559,6 +560,7 @@ public final class NavigationHelper {
         if (isEmpty(comment.getUploaderUrl())) {
             return;
         }
+        org.schabi.newpipe.player.ui.FullscreenCommentsSidebar.hide(activity);
         try {
             openChannelFragment(activity.getSupportFragmentManager(), comment.getServiceId(),
                     comment.getUploaderUrl(), comment.getUploaderName());
@@ -569,6 +571,9 @@ public final class NavigationHelper {
 
     public static void openCommentRepliesFragment(@NonNull final FragmentActivity activity,
                                                   @NonNull final CommentsInfoItem comment) {
+        if (org.schabi.newpipe.player.ui.FullscreenCommentsSidebar.showReplies(activity, comment)) {
+            return;
+        }
         closeCommentRepliesFragments(activity);
         defaultTransaction(activity.getSupportFragmentManager())
                 .replace(R.id.fragment_holder, new CommentRepliesFragment(comment),
@@ -650,6 +655,16 @@ public final class NavigationHelper {
     public static void openLocalMediaAudioFragment(final FragmentManager fragmentManager) {
         defaultTransaction(fragmentManager)
                 .replace(R.id.fragment_holder, LocalMediaFragment.newAudioTracksInstance())
+                .addToBackStack(null)
+                .commit();
+    }
+
+    public static void openGroupChannelsFragment(final FragmentManager fragmentManager,
+                                                 final long groupId,
+                                                 @NonNull final String groupName) {
+        defaultTransaction(fragmentManager)
+                .replace(R.id.fragment_holder, GroupChannelsFragment.Companion.newInstance(
+                        groupId, groupName))
                 .addToBackStack(null)
                 .commit();
     }
@@ -780,6 +795,12 @@ public final class NavigationHelper {
 
     public static void openSettings(final Context context) {
         final Intent intent = new Intent(context, SettingsActivity.class);
+        context.startActivity(intent);
+    }
+
+    public static void openProfilesSettings(final Context context) {
+        final Intent intent = new Intent(context, SettingsActivity.class)
+                .putExtra(SettingsActivity.EXTRA_OPEN_PROFILES_SETTINGS, true);
         context.startActivity(intent);
     }
 

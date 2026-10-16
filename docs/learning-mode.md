@@ -94,3 +94,27 @@ content.
 Timestamped learning notes have their own optional synchronization setting under
 **Settings > Device synchronization**. Note synchronization does not synchronize Learning-content
 selections.
+
+### Difficulty and review
+
+Enable **Lesson difficulty** in Learning settings to rate designated lessons as
+Easy, Medium, or Hard from their description. Use **Review lessons** in a marked
+playlist's menu to search its indexed videos, sort hardest first, and filter to
+Hard only. Tap a lesson to watch it or change its rating. Choose Not rated to clear
+its rating. A hard-lesson count on the Learning dashboard and in the course panel
+provides a shortcut before continuing to the next lesson. Reviewing is optional;
+playback and progress are never blocked by a rating.
+
+Ratings are per profile, stored locally, and are not included in Learning note
+sync. Remote course search covers videos already loaded and indexed from the
+playlist; opening further playlist pages adds them to review results. Local course
+membership follows the playlist's current contents.
+
+## Playlist notes
+
+Open a designated Learning playlist and choose **View playlist notes** from its menu.
+Select a note to edit it or export/delete it. **Note actions** exports all playlist notes as
+UTF-8 text or CSV, or deletes them after confirmation. Android's document picker lets you
+choose where to save exports. Notes are shared by video: deleting a note also removes it
+from any other playlist containing that video. Remote playlist notes use the indexed
+playlist contents, so open/load the playlist first to update its membership.

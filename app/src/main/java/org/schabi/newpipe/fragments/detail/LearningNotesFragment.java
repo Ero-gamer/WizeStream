@@ -25,8 +25,10 @@ import org.schabi.newpipe.database.learning.model.LearningNoteEntity;
 import org.schabi.newpipe.learning.LearningNoteDialog;
 import org.schabi.newpipe.learning.LearningNoteManager;
 import org.schabi.newpipe.learning.LearningNoteTime;
+import org.schabi.newpipe.learning.LearningVideoNotesCopy;
 import org.schabi.newpipe.player.TimestampChangeData;
 import org.schabi.newpipe.util.NavigationHelper;
+import org.schabi.newpipe.util.external_communication.ShareUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +46,7 @@ public class LearningNotesFragment extends Fragment {
     private LearningNoteManager noteManager;
     private NotesAdapter adapter;
     private TextView emptyView;
+    private View copyAllButton;
 
     public static LearningNotesFragment getInstance(final int serviceId, final String streamUrl) {
         final var fragment = new LearningNotesFragment();
@@ -70,6 +73,14 @@ public class LearningNotesFragment extends Fragment {
                              @Nullable final Bundle savedInstanceState) {
         final View root = inflater.inflate(R.layout.fragment_learning_notes, container, false);
         emptyView = root.findViewById(R.id.learning_notes_empty);
+        copyAllButton = root.findViewById(R.id.learning_notes_copy_all);
+        copyAllButton.setEnabled(false);
+        copyAllButton.setOnClickListener(view -> {
+            if (adapter != null && !adapter.notes.isEmpty()) {
+                ShareUtils.copyToClipboard(requireContext(),
+                        LearningVideoNotesCopy.text(adapter.notes));
+            }
+        });
         final RecyclerView notes = root.findViewById(R.id.learning_notes_list);
         notes.setLayoutManager(new LinearLayoutManager(requireContext()));
         adapter = new NotesAdapter();
@@ -83,6 +94,7 @@ public class LearningNotesFragment extends Fragment {
         disposables.clear();
         adapter = null;
         emptyView = null;
+        copyAllButton = null;
         super.onDestroyView();
     }
 
@@ -94,21 +106,27 @@ public class LearningNotesFragment extends Fragment {
                         return;
                     }
                     adapter.setNotes(notes);
+                    copyAllButton.setEnabled(!notes.isEmpty());
                     emptyView.setVisibility(notes.isEmpty() ? View.VISIBLE : View.GONE);
                 }, error -> Toast.makeText(requireContext(),
                         R.string.learning_note_save_error, Toast.LENGTH_SHORT).show()));
     }
 
     private void seekTo(final LearningNoteEntity note) {
+        seekTo(note.getTimestampMillis());
+    }
+
+    private void seekTo(final long timestampMillis) {
         requireContext().startService(NavigationHelper.getPlayerTimestampIntent(
                 requireContext(),
                 new TimestampChangeData(serviceId, streamUrl,
-                        (int) Math.min(Integer.MAX_VALUE, note.getTimestampMillis() / 1_000))
+                        (int) Math.min(Integer.MAX_VALUE, timestampMillis / 1_000))
         ));
     }
 
     private void edit(final LearningNoteEntity note) {
-        LearningNoteDialog.show(requireContext(), note.getTimestampMillis(), note,
+        LearningNoteDialog.showWithSeek(requireContext(), note.getTimestampMillis(), note,
+                this::seekTo,
                 (timestamp, text) -> disposables.add(noteManager.update(note, timestamp, text)
                         .observeOn(AndroidSchedulers.mainThread())
                         .subscribe(updated -> Toast.makeText(
@@ -157,11 +175,20 @@ public class LearningNotesFragment extends Fragment {
             final LearningNoteEntity note = notes.get(position);
             holder.timestamp.setText(LearningNoteTime.format(note.getTimestampMillis()));
             holder.text.setText(note.getNoteText());
-            holder.itemView.setOnClickListener(view -> seekTo(note));
+            holder.itemView.setOnClickListener(view -> edit(note));
             holder.itemView.setOnLongClickListener(view -> {
-                edit(note);
+                ShareUtils.copyToClipboard(requireContext(), note.getNoteText());
                 return true;
             });
+            holder.timestamp.setOnClickListener(view -> edit(note));
+            holder.timestamp.setOnLongClickListener(view -> {
+                seekTo(note);
+                return true;
+            });
+            holder.text.setOnClickListener(view -> edit(note));
+            org.schabi.newpipe.learning.NoteTextActions.install(holder.text,
+                    LearningNotesFragment.this::seekTo,
+                    () -> ShareUtils.copyToClipboard(requireContext(), note.getNoteText()));
             holder.edit.setOnClickListener(view -> edit(note));
             holder.delete.setOnClickListener(view -> confirmDelete(note));
         }

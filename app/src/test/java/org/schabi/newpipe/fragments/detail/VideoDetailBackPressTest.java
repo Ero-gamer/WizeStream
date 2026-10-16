@@ -33,6 +33,8 @@ import org.schabi.newpipe.player.ui.PlayerUi;
 import org.schabi.newpipe.player.ui.PlayerUiList;
 import org.schabi.newpipe.util.DeviceUtils;
 
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Optional;
@@ -73,6 +75,9 @@ public class VideoDetailBackPressTest {
         when(player.UIs()).thenReturn(new PlayerUiList(playerUi));
         when(player.getFragmentListener()).thenReturn(Optional.of(fragment));
         when(playerUi.isFullscreen()).thenAnswer(invocation -> fullscreen.get());
+        when(playerUi.getVideoContentOrientation()).thenReturn(
+                org.schabi.newpipe.player.ui.FullscreenOrientationPolicy
+                        .VideoContentOrientation.LANDSCAPE);
         when(playerUi.isLandscape()).thenReturn(true);
         doAnswer(invocation -> {
             fullscreen.set(invocation.getArgument(0));
@@ -121,16 +126,45 @@ public class VideoDetailBackPressTest {
     }
 
     @Test
+    public void backFromEmbeddedVideoCollapsesWithoutChangingPlaybackHistory() {
+        fullscreen.set(false);
+        when(player.videoPlayerSelected()).thenReturn(true);
+
+        assertFalse(fragment.onBackPressed());
+
+        verify(player, never()).getPlayQueue();
+        verify(player, never()).pause();
+        verify(activity, never()).setRequestedOrientation(anyInt());
+    }
+
+    @Test
     public void tabletBackExitsFullscreenWithoutRequestingPortrait() {
         deviceUtils.when(() -> DeviceUtils.isTablet(activity)).thenReturn(true);
 
         assertTrue(fragment.onBackPressed());
 
         assertFalse(fullscreen.get());
-        verify(playerUi).toggleFullscreen();
+        verify(playerUi).setFullscreen(false);
+        verify(playerUi, never()).toggleFullscreen();
         verify(activity, never()).setRequestedOrientation(anyInt());
         verify(player, never()).pause();
         verify(player, never()).getPlayQueue();
+    }
+
+    @Test
+    public void tvBackFromEmbeddedPlayerHidesTheSheetForCleanup() throws Exception {
+        fullscreen.set(false);
+        when(player.videoPlayerSelected()).thenReturn(true);
+        deviceUtils.when(() -> DeviceUtils.isTv(activity)).thenReturn(true);
+        final BottomSheetBehavior<?> sheet = mock(BottomSheetBehavior.class);
+        setField(VideoDetailFragment.class, fragment, "bottomSheetBehavior", sheet);
+
+        assertTrue(fragment.onBackPressed());
+
+        verify(sheet).setState(BottomSheetBehavior.STATE_HIDDEN);
+        verify(fragment).setAutoPlay(false);
+        verify(player, never()).getPlayQueue();
+        verify(activity, never()).setRequestedOrientation(anyInt());
     }
 
     private void syncFullscreenWithOrientation() throws Exception {

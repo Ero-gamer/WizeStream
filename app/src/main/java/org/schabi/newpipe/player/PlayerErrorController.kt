@@ -25,11 +25,17 @@ import androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALF
 import androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED
 import androidx.media3.common.PlaybackException.ERROR_CODE_TIMEOUT
 import androidx.media3.common.PlaybackException.ERROR_CODE_UNSPECIFIED
+import androidx.media3.common.Player as Media3Player
+import androidx.media3.exoplayer.ExoPlaybackException
+import org.schabi.newpipe.R
 import org.schabi.newpipe.error.ErrorInfo
 import org.schabi.newpipe.error.ErrorUtil
 import org.schabi.newpipe.error.UserAction
+import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.player.datasource.InvidiousMediaResponse
 import org.schabi.newpipe.player.helper.PlayerDataSource
 import org.schabi.newpipe.player.playqueue.PlayQueueItem
+import org.schabi.newpipe.player.resolver.PlaybackResolver
 import org.schabi.newpipe.player.resolver.VideoPlaybackResolver
 import org.schabi.newpipe.util.InfoCache
 
@@ -40,20 +46,37 @@ internal class PlayerErrorController(
     private val videoResolver: VideoPlaybackResolver
 ) {
     private val recoveryGuard = PlayerHttpErrorRecovery.RecoveryGuard()
+    private val rejectedFormatRecoveryGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
+    private val decoderRecoveryGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
+    private val audioTrackRecoveryGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
+    private val liveStallRecoveryGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
+    private val liveHlsRefreshGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
+    private val liveDashRefreshGuard = PlayerHttpErrorRecovery.OneShotRecoveryGuard()
     private val recoveryHandler = Handler(Looper.getMainLooper())
     private var pendingMediaUrlRecovery: Runnable? = null
+    private var pendingLiveStallRecovery: Runnable? = null
+    private var lastPlayingLiveKey: String? = null
+    private var recoveringLiveKey: String? = null
 
     fun onPlayerError(error: PlaybackException) {
+        cancelPendingLiveStallRecovery()
         Log.e(Player.TAG, "ExoPlayer - onPlayerError() called with:", error)
 
         if (player.videoAdjustments.recover(error)) return
 
         player.saveStreamProgressState()
+        if (tryRecoverFromAudioTrackInitFailure(error)) {
+            return
+        }
+
         val downloaded = org.schabi.newpipe.player.mediaitem.MediaItemTag.from(player.exoPlayer.currentMediaItem)
             .flatMap { it.maybeStreamInfo }.orElse(null) as? org.schabi.newpipe.download.DownloadedStreamInfo
         if (downloaded != null && org.schabi.newpipe.download.DownloadedCopyRepository.reject(downloaded)) {
             player.setRecovery()
             player.reloadPlayQueueManager()
+            return
+        }
+        if (tryRecoverFromYouTubeAv1DecoderFailure(error)) {
             return
         }
         if (tryRecoverFromYouTubeMediaUrlFailure(error)) {
@@ -69,7 +92,19 @@ internal class PlayerErrorController(
                 player.onBuffering()
             }
 
-            ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+            ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> {
+                if (generateSequence(error as Throwable) { it.cause }.any { it is InvidiousMediaResponse.InvalidResponseException }) {
+                    isCatchableException = true
+                    if (!player.exoPlayerIsNull()) {
+                        player.exoPlayer.pause()
+                    }
+                    player.changeState(Player.STATE_PAUSED)
+                    createErrorNotification(error, toastMessageRes = R.string.invidious_media_error)
+                } else if (!player.exoPlayerIsNull()) {
+                    player.playQueue?.error()
+                }
+            }
+
             ERROR_CODE_IO_BAD_HTTP_STATUS,
             ERROR_CODE_IO_FILE_NOT_FOUND,
             ERROR_CODE_IO_NO_PERMISSION,
@@ -102,11 +137,196 @@ internal class PlayerErrorController(
         eventDispatcher.notifyPlayerError(error, isCatchableException)
     }
 
-    fun resetRecovery() {
-        cancelPendingMediaUrlRecovery()
-        recoveryGuard.reset()
+    fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
+        if (!playWhenReady) {
+            cancelPendingLiveStallRecovery()
+        } else if (!player.exoPlayerIsNull()) {
+            // Resuming during an existing buffering state does not emit a new state event.
+            onPlaybackStateChanged(player.exoPlayer.playbackState)
+        }
     }
 
+    fun onPlaybackStateChanged(playbackState: Int) {
+        val item = player.playQueue?.item
+        val key = item?.let { "${it.serviceId}:${it.url}" }
+        when (playbackState) {
+            Media3Player.STATE_READY -> {
+                cancelPendingLiveStallRecovery()
+                recoveringLiveKey = null
+                lastPlayingLiveKey = if (item != null && player.playWhenReady &&
+                    isRecoverableLiveManifest(item)
+                ) {
+                    key
+                } else {
+                    null
+                }
+            }
+
+            Media3Player.STATE_BUFFERING -> {
+                if (key == null || (key != lastPlayingLiveKey && key != recoveringLiveKey) ||
+                    !player.playWhenReady || item == null || !isRecoverableLiveManifest(item) ||
+                    pendingLiveStallRecovery != null
+                ) {
+                    return
+                }
+
+                val recovery = Runnable {
+                    pendingLiveStallRecovery = null
+                    val queue = player.playQueue ?: return@Runnable
+                    val currentItem = queue.item ?: return@Runnable
+                    val currentKey = "${currentItem.serviceId}:${currentItem.url}"
+                    val info = player.currentStreamInfo.orElse(null) ?: return@Runnable
+                    if (currentKey != key || !player.playWhenReady || player.exoPlayerIsNull() ||
+                        player.exoPlayer.playbackState != Media3Player.STATE_BUFFERING ||
+                        !isRecoverableLiveManifest(currentItem)
+                    ) {
+                        return@Runnable
+                    }
+
+                    if (canFallBackToLiveHls(currentItem)) {
+                        if (!player.isNormalLive() && liveDashRefreshGuard.acquire(key)) {
+                            Log.w(Player.TAG, "Full live DASH stalled; refreshing URLs before HLS fallback")
+                            player.setRecovery()
+                            invalidateYouTubeMediaCaches(currentItem)
+                        } else {
+                            if (!liveStallRecoveryGuard.acquire(key)) return@Runnable
+                            Log.w(Player.TAG, "Live DASH stalled after recovery; retrying with HLS")
+                            videoResolver.preferHlsForLiveStream(info.url)
+                            queue.unsetRecovery(queue.index)
+                        }
+                    } else {
+                        if (!liveHlsRefreshGuard.acquire(key)) return@Runnable
+                        Log.w(Player.TAG, "Live HLS stalled while buffering; refreshing stream URLs once")
+                        player.setRecovery()
+                        videoResolver.preferHlsForLiveStream(info.url)
+                        invalidateYouTubeMediaCaches(currentItem)
+                    }
+                    // Reloading may emit IDLE then BUFFERING without ever reaching READY.
+                    // Keep this key so a stalled HLS fallback can still be recovered.
+                    recoveringLiveKey = key
+                    player.reloadPlayQueueManager()
+                }
+                pendingLiveStallRecovery = recovery
+                recoveryHandler.postDelayed(recovery, LIVE_STALL_TIMEOUT_MILLIS)
+            }
+
+            else -> {
+                cancelPendingLiveStallRecovery()
+                lastPlayingLiveKey = null
+            }
+        }
+    }
+
+    fun resetRecovery() {
+        cancelPendingMediaUrlRecovery()
+        cancelPendingLiveStallRecovery()
+        lastPlayingLiveKey = null
+        recoveringLiveKey = null
+        recoveryGuard.reset()
+        rejectedFormatRecoveryGuard.reset()
+        videoResolver.clearRejectedVideoStream()
+        decoderRecoveryGuard.reset()
+        audioTrackRecoveryGuard.reset()
+        liveStallRecoveryGuard.reset()
+        liveHlsRefreshGuard.reset()
+        liveDashRefreshGuard.reset()
+        videoResolver.clearRejectedVideoCodecFamily()
+        videoResolver.clearLiveHlsFallback()
+    }
+
+    private fun isRecoverableLiveManifest(item: PlayQueueItem): Boolean {
+        val info = player.currentStreamInfo.orElse(null) ?: return false
+        return info.streamType == StreamType.LIVE_STREAM &&
+            PlayerHttpErrorRecovery.isYouTubeService(item.serviceId) &&
+            PlaybackResolver.isManifestOnlyYoutubeLive(info) &&
+            player.videoPlayerSelected()
+    }
+
+    private fun canFallBackToLiveHls(item: PlayQueueItem): Boolean {
+        val info = player.currentStreamInfo.orElse(null) ?: return false
+        return PlayerHttpErrorRecovery.isYouTubeService(item.serviceId) &&
+            PlaybackResolver.isManifestOnlyYoutubeLive(info) &&
+            info.dashMpdUrl.isNotEmpty() &&
+            !videoResolver.isHlsPreferredForLiveStream(info.url) &&
+            // The video resolver still owns the live source while its video renderer is
+            // temporarily disabled in the background. True audio-player sources are excluded.
+            player.videoPlayerSelected()
+    }
+
+    private fun cancelPendingLiveStallRecovery() {
+        pendingLiveStallRecovery?.let(recoveryHandler::removeCallbacks)
+        pendingLiveStallRecovery = null
+    }
+
+    private fun tryRecoverFromAudioTrackInitFailure(error: PlaybackException): Boolean {
+        if (!PlayerHttpErrorRecovery.isRecoverableAudioTrackInitFailure(error.errorCode)) {
+            return false
+        }
+
+        val item = player.playQueue?.item ?: return false
+        val recoveryKey = "${item.serviceId}:${item.url}"
+        if (!audioTrackRecoveryGuard.acquire(recoveryKey)) {
+            return false
+        }
+
+        Log.w(
+            Player.TAG,
+            "Recreating playback engine after AudioTrack initialization failure"
+        )
+        player.setRecovery()
+        player.onBuffering()
+        cancelPendingMediaUrlRecovery()
+        player.restartForAudioTrackRecovery()
+        return true
+    }
+    private fun tryRecoverFromYouTubeAv1DecoderFailure(error: PlaybackException): Boolean {
+        val item = player.playQueue?.item ?: return false
+        if (!PlayerHttpErrorRecovery.isYouTubeService(item.serviceId)) {
+            return false
+        }
+
+        val quality = player.currentMetadata?.maybeQuality?.orElse(null) ?: return false
+        val stream = player.selectedVideoStream.orElse(null)
+            ?: (error as? ExoPlaybackException)?.rendererFormat?.id?.let { formatId ->
+                quality.sortedVideoStreams.firstOrNull { candidate ->
+                    candidate.itag.toString() == formatId
+                }
+            }
+            ?: return false
+        if (!PlayerHttpErrorRecovery.isRecoverableAv1DecoderInitFailure(
+                error.errorCode,
+                stream
+            )
+        ) {
+            return false
+        }
+
+        if (!VideoPlaybackResolver.hasAlternativeCodecFamily(
+                quality.sortedVideoStreams,
+                stream.codec
+            )
+        ) {
+            return false
+        }
+
+        val recoveryKey = "${item.serviceId}:${item.url}"
+        if (!decoderRecoveryGuard.acquire(recoveryKey)) {
+            return false
+        }
+
+        Log.w(
+            Player.TAG,
+            "Retrying YouTube playback after AV1 decoder initialization failure " +
+                "with a different codec family"
+        )
+        player.setRecovery()
+        player.onBuffering()
+        cancelPendingMediaUrlRecovery()
+        videoResolver.rejectVideoCodecFamilyForStream(item.url, stream.codec)
+        PlayerDataSource.invalidateYoutubeManifestCaches()
+        player.reloadPlayQueueManager()
+        return true
+    }
     private fun tryRecoverFromYouTubeMediaUrlFailure(error: PlaybackException): Boolean {
         val item = player.playQueue?.item ?: return false
         if (!PlayerHttpErrorRecovery.isRecoverableYouTubeMediaUrlFailure(error, item)) {
@@ -124,6 +344,11 @@ internal class PlayerErrorController(
             cancelPendingMediaUrlRecovery()
             invalidateYouTubeMediaCaches(item)
             recoveryGuard.reset()
+            if (tryRecoverFromLiveDashHttpFailure(error, item) ||
+                tryRecoverFromRejectedYouTubeVideo(error, item)
+            ) {
+                return true
+            }
             if (!player.exoPlayerIsNull()) {
                 player.exoPlayer.pause()
             }
@@ -175,6 +400,54 @@ internal class PlayerErrorController(
         return true
     }
 
+    private fun tryRecoverFromRejectedYouTubeVideo(
+        error: PlaybackException,
+        item: PlayQueueItem
+    ): Boolean {
+        val info = player.currentStreamInfo.orElse(null) ?: return false
+        val selected = player.selectedVideoStream.orElse(null) ?: return false
+        if (!PlayerHttpErrorRecovery.isYouTubeService(item.serviceId) ||
+            !player.videoPlayerSelected() || info.streamType != StreamType.VIDEO_STREAM ||
+            !PlayerHttpErrorRecovery.isRejectedVideoFormat(error, selected) ||
+            (info.videoStreams + info.videoOnlyStreams).none {
+                it.itag > 0 && it.itag != selected.itag
+            } ||
+            !rejectedFormatRecoveryGuard.acquire("${item.serviceId}:${item.url}")
+        ) {
+            return false
+        }
+
+        Log.w(Player.TAG, "Fresh YouTube URLs remain rejected; trying another video format once")
+        player.setRecovery()
+        player.onBuffering()
+        videoResolver.rejectVideoStreamForCurrentItem(item.url, selected.itag)
+        player.reloadPlayQueueManager()
+        return true
+    }
+
+    internal fun tryRecoverFromLiveDashHttpFailure(
+        error: PlaybackException,
+        item: PlayQueueItem
+    ): Boolean {
+        if (PlayerHttpErrorRecovery.findInvalidResponseCode(error) != 403 ||
+            !canFallBackToLiveHls(item) ||
+            !liveStallRecoveryGuard.acquire("${item.serviceId}:${item.url}")
+        ) {
+            return false
+        }
+
+        val info = player.currentStreamInfo.orElse(null) ?: return false
+        val queue = player.playQueue ?: return false
+        Log.w(Player.TAG, "Live DASH HTTP 403 recovery exhausted; retrying with HLS")
+        videoResolver.preferHlsForLiveStream(info.url)
+        recoveringLiveKey = "${item.serviceId}:${item.url}"
+        lastPlayingLiveKey = null
+        queue.unsetRecovery(queue.index)
+        player.onBuffering()
+        player.reloadPlayQueueManager()
+        return true
+    }
+
     private fun cancelPendingMediaUrlRecovery() {
         pendingMediaUrlRecovery?.let(recoveryHandler::removeCallbacks)
         pendingMediaUrlRecovery = null
@@ -187,7 +460,8 @@ internal class PlayerErrorController(
 
     private fun createErrorNotification(
         error: PlaybackException,
-        recoveryDiagnostic: String? = null
+        recoveryDiagnostic: String? = null,
+        toastMessageRes: Int = R.string.error_report_notification_toast
     ) {
         val diagnosticSuffix = buildString {
             PlayerHttpErrorRecovery.buildSafeErrorContext(error)?.let { safeErrorContext ->
@@ -216,6 +490,10 @@ internal class PlayerErrorController(
                 metadata.streamUrl
             )
         }
-        ErrorUtil.createNotification(player.context, errorInfo)
+        ErrorUtil.createNotification(player.context, errorInfo, toastMessageRes)
+    }
+
+    private companion object {
+        const val LIVE_STALL_TIMEOUT_MILLIS = 10_000L
     }
 }

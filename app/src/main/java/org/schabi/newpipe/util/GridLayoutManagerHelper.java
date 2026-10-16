@@ -1,11 +1,11 @@
 package org.schabi.newpipe.util;
 
 import android.content.Context;
+import android.os.Parcelable;
 import android.view.View;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -17,7 +17,7 @@ import org.schabi.newpipe.R;
 public final class GridLayoutManagerHelper {
     private static final int AUTOMATIC_SPAN_COUNT = 0;
     private static final int MINIMUM_CONFIGURED_SPAN_COUNT = 2;
-    private static final int MAXIMUM_CONFIGURED_SPAN_COUNT = 4;
+    private static final int MAXIMUM_CONFIGURED_SPAN_COUNT = 7;
 
     private GridLayoutManagerHelper() {
     }
@@ -85,10 +85,39 @@ public final class GridLayoutManagerHelper {
         return layoutManager;
     }
 
+    /**
+     * Retains the visible item when switching between linear and grid layouts.
+     * @param recyclerView the list whose scroll position should be retained
+     * @param changeLayout the action that replaces the layout and updates its items
+     */
+    public static void preserveScrollPosition(@NonNull final RecyclerView recyclerView,
+                                              @NonNull final Runnable changeLayout) {
+        final RecyclerView.LayoutManager previous = recyclerView.getLayoutManager();
+        final Parcelable state = previous == null ? null : previous.onSaveInstanceState();
+        changeLayout.run();
+        final RecyclerView.LayoutManager current = recyclerView.getLayoutManager();
+        if (state != null && current != null) {
+            current.onRestoreInstanceState(state);
+        }
+    }
+
+    /**
+     * Discards layouts inflated under the previous resource configuration.
+     * @param recyclerView the list whose holders should be recreated
+     */
+    public static void reinflateViewHolders(@NonNull final RecyclerView recyclerView) {
+        final RecyclerView.Adapter<?> adapter = recyclerView.getAdapter();
+        // Detach first: attached and cached holders are recycled into the pool during this call.
+        recyclerView.setAdapter(null);
+        recyclerView.getRecycledViewPool().clear();
+        recyclerView.setAdapter(adapter);
+    }
+
     public static int getPreferredSpanCount(@NonNull final Context context) {
-        final String value = PreferenceManager.getDefaultSharedPreferences(context)
-                .getString(context.getString(R.string.grid_columns_key),
-                        context.getString(R.string.grid_columns_auto_key));
+        final String value = ThemeHelper.getOrientationPreference(context,
+                R.string.grid_columns_key,
+                R.string.grid_columns_portrait_key, R.string.grid_columns_landscape_key,
+                context.getString(R.string.grid_columns_auto_key));
         return parsePreferredSpanCount(value);
     }
 

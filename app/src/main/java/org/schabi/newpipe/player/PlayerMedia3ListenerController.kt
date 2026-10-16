@@ -31,12 +31,29 @@ internal class PlayerMedia3ListenerController(
 
     fun onEvents(media3Player: Media3Player) {
         metadataController.onEvents(media3Player)
+        // StreamInfo may arrive in onEvents after the BUFFERING callback. Recheck the
+        // watchdog once metadata is available, including a fallback that never reaches READY.
+        if (media3Player.playbackState == Media3Player.STATE_BUFFERING) {
+            errorController.onPlaybackStateChanged(Media3Player.STATE_BUFFERING)
+        }
     }
 
     fun onTimelineChanged(timeline: Timeline, reason: Int) {
+        playbackParametersController.refreshSkipSilence()
         val item = player.currentItem
         if (item != null && player.isLive) {
             playbackParametersController.applySpeedProfile(item)
+            if (Player.DEBUG && !timeline.isEmpty) {
+                val index = player.exoPlayer.currentMediaItemIndex
+                    .coerceIn(0, timeline.windowCount - 1)
+                val window = timeline.getWindow(index, Timeline.Window())
+                Log.d(
+                    Player.TAG,
+                    "Live player timeline: reason=$reason dynamic=${window.isDynamic} " +
+                        "durationMs=${window.durationMs} " +
+                        "defaultPositionMs=${window.defaultPositionMs}"
+                )
+            }
         }
     }
 
@@ -47,6 +64,7 @@ internal class PlayerMedia3ListenerController(
                 "ExoPlayer - onTracksChanged(), track group size = ${tracks.groups.size}"
             )
         }
+        player.liveQualityController.onTracksChanged(tracks)
         player.UIs().call { ui -> ui.onTextTracksChanged(tracks) }
     }
 
@@ -85,10 +103,12 @@ internal class PlayerMedia3ListenerController(
 
         val newIndex = newPosition.mediaItemIndex
         if (newIndex != oldPosition.mediaItemIndex) {
+            player.liveQualityController.resetForNewItem()
             player.UIs().call(PlayerUi::onMediaItemTransition)
             errorController.resetRecovery()
         }
         if (reason == Media3Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+            player.channelSkipController.automaticTransition()
             sleepTimerController.onItemEnded(queue.getItem(oldPosition.mediaItemIndex), true)
         }
 

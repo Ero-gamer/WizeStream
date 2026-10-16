@@ -15,7 +15,8 @@ import org.schabi.newpipe.local.subscription.FeedGroupIcon
 
 internal class FeedGroupSyncAdapter(
     database: AppDatabase,
-    private val recordRepository: StructuredPreferenceRecordRepository
+    private val recordRepository: StructuredPreferenceRecordRepository,
+    private val canMaterializeProfile: (String) -> Boolean = { true }
 ) : StructuredPreferenceCategoryAdapter {
     override val category = StructuredPreferenceCategory.FEED_GROUPS
 
@@ -23,22 +24,30 @@ internal class FeedGroupSyncAdapter(
     private val subscriptionDao = database.subscriptionDAO()
 
     override fun snapshotHash(): String {
-        val subscriptions = subscriptionDao.getAllDirect().associateBy { it.uid }
-        val snapshot = feedGroupDao.getAllDirect().map { group ->
-            FeedGroupSnapshot(
-                uid = group.uid,
-                name = group.name,
-                iconId = group.icon.id,
-                sortOrder = group.sortOrder,
-                memberships = feedGroupDao
-                    .getSubscriptionIdsForDirect(group.uid)
-                    .mapNotNull(subscriptions::get)
-                    .map {
-                        "${it.serviceId}\u0000${it.url?.trim().orEmpty()}"
-                    }
-                    .sorted()
-            )
-        }
+        val subscriptions = subscriptionDao
+            .getAllDirect()
+            .associateBy { it.profileId to it.uid }
+        val snapshot = feedGroupDao
+            .getAllDirect()
+            .map { group ->
+                FeedGroupSnapshot(
+                    uid = group.uid,
+                    profileId = group.profileId,
+                    name = group.name,
+                    iconId = group.icon.id,
+                    sortOrder = group.sortOrder,
+                    memberships = feedGroupDao
+                        .getSubscriptionIdsForDirectForProfile(
+                            group.profileId,
+                            group.uid
+                        )
+                        .mapNotNull { id -> subscriptions[group.profileId to id] }
+                        .map {
+                            "${it.serviceId}\u0000${it.url?.trim().orEmpty()}"
+                        }
+                        .sorted()
+                )
+            }
         return structuredPreferenceDigest(
             STRUCTURED_PREFERENCE_JSON.encodeToString(snapshot)
         )
@@ -51,15 +60,20 @@ internal class FeedGroupSyncAdapter(
                 "There are too many feed groups to synchronize"
             )
         }
-        val duplicateOrdinals = linkedMapOf<Pair<String, Int>, Int>()
+        val duplicateOrdinals = linkedMapOf<Triple<String, String, Int>, Int>()
         val mappings = groups.associateWith { group ->
             recordRepository.getFeedGroupMapping(group.uid)
                 ?: run {
-                    val identity = group.name.trim() to group.icon.id
+                    val identity = Triple(
+                        group.profileId,
+                        group.name.trim(),
+                        group.icon.id
+                    )
                     val ordinal = duplicateOrdinals[identity] ?: 0
                     duplicateOrdinals[identity] = ordinal + 1
                     val recordId = if (bootstrap) {
                         StructuredPreferenceRecordId.initialFeedGroup(
+                            group.profileId,
                             group.name,
                             group.icon.id,
                             ordinal
@@ -85,7 +99,8 @@ internal class FeedGroupSyncAdapter(
                 record = SyncedStructuredPreferenceRecord(
                     feedGroup = SyncedFeedGroup(
                         name = group.name.trim().take(MAX_STRUCTURED_NAME_LENGTH),
-                        iconId = group.icon.id
+                        iconId = group.icon.id,
+                        profileId = group.profileId
                     )
                 )
             )
@@ -97,12 +112,17 @@ internal class FeedGroupSyncAdapter(
             .filterNot { it.recordId in desiredGroupIds }
             .forEach(recordRepository::saveLocalDelete)
 
-        val subscriptionsById = subscriptionDao.getAllDirect().associateBy { it.uid }
+        val subscriptionsById = subscriptionDao
+            .getAllDirect()
+            .associateBy { it.profileId to it.uid }
         val desiredMemberships = linkedMapOf<String, Pair<String, SyncedFeedGroupMembership>>()
         groups.forEach { group ->
             val groupRecordId = requireNotNull(mappings[group]).groupRecordId
-            feedGroupDao.getSubscriptionIdsForDirect(group.uid)
-                .mapNotNull(subscriptionsById::get)
+            feedGroupDao.getSubscriptionIdsForDirectForProfile(
+                group.profileId,
+                group.uid
+            )
+                .mapNotNull { id -> subscriptionsById[group.profileId to id] }
                 .forEach { subscription ->
                     val url = subscription.url?.trim().orEmpty()
                     if (url.isEmpty()) {
@@ -111,7 +131,8 @@ internal class FeedGroupSyncAdapter(
                     val membership = SyncedFeedGroupMembership(
                         groupRecordId = groupRecordId,
                         serviceId = subscription.serviceId,
-                        subscriptionUrl = url
+                        subscriptionUrl = url,
+                        profileId = group.profileId
                     )
                     val recordId = StructuredPreferenceRecordId.feedGroupMembership(
                         groupRecordId,
@@ -137,16 +158,21 @@ internal class FeedGroupSyncAdapter(
             .filterNot { it.recordId in desiredMemberships }
             .forEach(recordRepository::saveLocalDelete)
 
-        recordRepository.saveLocalUpsert(
-            category = category,
-            recordId = StructuredPreferenceRecordId.feedGroupOrder(),
-            recordType = StructuredPreferenceRecordType.FEED_GROUP_ORDER,
-            record = SyncedStructuredPreferenceRecord(
-                feedGroupOrder = SyncedFeedGroupOrder(
-                    groups.map { requireNotNull(mappings[it]).groupRecordId }
+        groups.groupBy(FeedGroupEntity::profileId).forEach { (profileId, profileGroups) ->
+            recordRepository.saveLocalUpsert(
+                category = category,
+                recordId = StructuredPreferenceRecordId.feedGroupOrder(profileId),
+                recordType = StructuredPreferenceRecordType.FEED_GROUP_ORDER,
+                record = SyncedStructuredPreferenceRecord(
+                    feedGroupOrder = SyncedFeedGroupOrder(
+                        groupRecordIds = profileGroups
+                            .sortedBy(FeedGroupEntity::sortOrder)
+                            .map { requireNotNull(mappings[it]).groupRecordId },
+                        profileId = profileId
+                    )
                 )
             )
-        )
+        }
     }
 
     override fun materialize() {
@@ -156,8 +182,15 @@ internal class FeedGroupSyncAdapter(
         )
         metadataRecords.filter(StructuredPreferenceSyncRecordEntity::isDeleted)
             .forEach { record ->
+                val data = recordRepository.decodeRecord(record).feedGroup
+                    ?: throw StructuredPreferenceSyncException(
+                        "Stored feed group metadata is invalid"
+                    )
                 recordRepository.getFeedGroupMapping(record.recordId)?.let { mapping ->
-                    feedGroupDao.delete(mapping.groupUid)
+                    feedGroupDao.deleteForProfile(
+                        data.profileId,
+                        mapping.groupUid
+                    )
                 }
             }
         metadataRecords.filterNot(StructuredPreferenceSyncRecordEntity::isDeleted)
@@ -167,13 +200,25 @@ internal class FeedGroupSyncAdapter(
                         "Stored feed group metadata is invalid"
                     )
                 val mapping = recordRepository.getFeedGroupMapping(record.recordId)
-                var group = mapping?.let { feedGroupDao.getGroupDirect(it.groupUid) }
+                if (!canMaterializeProfile(data.profileId)) {
+                    mapping?.let {
+                        feedGroupDao.deleteForProfile(data.profileId, it.groupUid)
+                    }
+                    return@forEach
+                }
+                var group = mapping?.let {
+                    feedGroupDao.getGroupDirectForProfile(
+                        data.profileId,
+                        it.groupUid
+                    )
+                }
                 if (group == null) {
                     val uid = feedGroupDao.insert(
                         FeedGroupEntity(
                             uid = 0,
                             name = data.name,
-                            icon = feedGroupIcon(data.iconId)
+                            icon = feedGroupIcon(data.iconId),
+                            profileId = data.profileId
                         )
                     )
                     recordRepository.saveFeedGroupMapping(
@@ -182,18 +227,32 @@ internal class FeedGroupSyncAdapter(
                             groupUid = uid
                         )
                     )
-                    group = requireNotNull(feedGroupDao.getGroupDirect(uid))
+                    group = requireNotNull(
+                        feedGroupDao.getGroupDirectForProfile(
+                            data.profileId,
+                            uid
+                        )
+                    )
                 }
                 group.name = data.name
                 group.icon = feedGroupIcon(data.iconId)
-                feedGroupDao.update(group)
+                feedGroupDao.updateForProfile(data.profileId, group)
             }
 
-        val subscriptions = subscriptionDao.getAllDirect().associateBy {
-            it.serviceId to it.url?.trim()
-        }
+        val subscriptions = subscriptionDao
+            .getAllDirect()
+            .associateBy {
+                Triple(it.profileId, it.serviceId, it.url?.trim())
+            }
         metadataRecords.filterNot(StructuredPreferenceSyncRecordEntity::isDeleted)
             .forEach { groupRecord ->
+                val groupData = recordRepository.decodeRecord(groupRecord).feedGroup
+                    ?: throw StructuredPreferenceSyncException(
+                        "Stored feed group metadata is invalid"
+                    )
+                if (!canMaterializeProfile(groupData.profileId)) {
+                    return@forEach
+                }
                 val mapping = recordRepository.getFeedGroupMapping(groupRecord.recordId)
                     ?: return@forEach
                 val subscriptionIds = recordRepository.getChildRecords(
@@ -207,33 +266,72 @@ internal class FeedGroupSyncAdapter(
                     .mapNotNull { record ->
                         val data = recordRepository.decodeRecord(record).feedGroupMembership
                             ?: return@mapNotNull null
-                        subscriptions[data.serviceId to data.subscriptionUrl]?.uid
+                        data.takeIf { it.profileId == groupData.profileId }
+                            ?.let {
+                                subscriptions[
+                                    Triple(
+                                        groupData.profileId,
+                                        it.serviceId,
+                                        it.subscriptionUrl
+                                    )
+                                ]?.uid
+                            }
                     }
-                feedGroupDao.updateSubscriptionsForGroup(
+                feedGroupDao.updateSubscriptionsForGroupForProfile(
+                    groupData.profileId,
                     mapping.groupUid,
                     subscriptionIds
                 )
             }
 
-        val order = recordRepository.getRecord(
-            category,
-            StructuredPreferenceRecordId.feedGroupOrder()
-        )?.takeUnless(StructuredPreferenceSyncRecordEntity::isDeleted)
-            ?.let(recordRepository::decodeRecord)
-            ?.feedGroupOrder
-            ?.groupRecordIds
-            .orEmpty()
-        val orderedUids = order.mapNotNull { recordId ->
-            recordRepository.getFeedGroupMapping(recordId)?.groupUid
+        val liveMetadataById = metadataRecords
+            .filterNot(StructuredPreferenceSyncRecordEntity::isDeleted)
+            .associateBy(StructuredPreferenceSyncRecordEntity::recordId)
+        val profileIds = buildSet {
+            liveMetadataById.values.forEach { record ->
+                recordRepository.decodeRecord(record).feedGroup?.profileId?.let(::add)
+            }
+            recordRepository.getRecordsByType(
+                category,
+                StructuredPreferenceRecordType.FEED_GROUP_ORDER
+            ).filterNot(StructuredPreferenceSyncRecordEntity::isDeleted)
+                .forEach { record ->
+                    recordRepository.decodeRecord(record).feedGroupOrder?.profileId?.let(::add)
+                }
         }
-        val remainingUids = feedGroupDao.getAllDirect()
-            .map(FeedGroupEntity::uid)
-            .filterNot(orderedUids::contains)
-        feedGroupDao.updateOrder(
-            (orderedUids + remainingUids).mapIndexed { index, uid ->
-                uid to index.toLong()
-            }.toMap()
-        )
+        profileIds.forEach { profileId ->
+            if (!canMaterializeProfile(profileId)) {
+                feedGroupDao.deleteAllForProfile(profileId)
+                return@forEach
+            }
+            val order = recordRepository.getRecord(
+                category,
+                StructuredPreferenceRecordId.feedGroupOrder(profileId)
+            )?.takeUnless(StructuredPreferenceSyncRecordEntity::isDeleted)
+                ?.let(recordRepository::decodeRecord)
+                ?.feedGroupOrder
+                ?.takeIf { it.profileId == profileId }
+                ?.groupRecordIds
+                .orEmpty()
+            val orderedUids = order.mapNotNull { recordId ->
+                val metadata = liveMetadataById[recordId]
+                    ?.let(recordRepository::decodeRecord)
+                    ?.feedGroup
+                    ?.takeIf { it.profileId == profileId }
+                    ?: return@mapNotNull null
+                recordRepository.getFeedGroupMapping(recordId)?.groupUid
+            }
+            val remainingUids = feedGroupDao
+                .getAllDirectForProfile(profileId)
+                .map(FeedGroupEntity::uid)
+                .filterNot(orderedUids::contains)
+            feedGroupDao.updateOrderForProfile(
+                profileId,
+                (orderedUids + remainingUids).mapIndexed { index, uid ->
+                    uid to index.toLong()
+                }.toMap()
+            )
+        }
     }
 
     private fun feedGroupIcon(iconId: Int): FeedGroupIcon {
@@ -244,6 +342,7 @@ internal class FeedGroupSyncAdapter(
     @Serializable
     private data class FeedGroupSnapshot(
         val uid: Long,
+        val profileId: String,
         val name: String,
         val iconId: Int,
         val sortOrder: Long,

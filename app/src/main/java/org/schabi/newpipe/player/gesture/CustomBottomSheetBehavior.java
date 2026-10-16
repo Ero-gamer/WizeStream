@@ -38,7 +38,8 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
     private final List<Integer> skipInterceptionOfElements = List.of(
             R.id.detail_content_root_layout, R.id.relatedItemsLayout,
             R.id.itemsListPanel, R.id.view_pager, R.id.tab_layout, R.id.bottomControls,
-            R.id.playPauseButton, R.id.playPreviousButton, R.id.playNextButton);
+            R.id.playPauseButton, R.id.playPreviousButton, R.id.playNextButton,
+            R.id.bottom_player_controls_panel);
     private final LockedOrientationFullscreenController lockedOrientationFullscreenController =
             new LockedOrientationFullscreenController();
 
@@ -165,7 +166,8 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
                             && globalRect.contains((int) event.getRawX(), (int) event.getRawY())) {
                         // Makes bottom part of the player draggable in portrait when
                         // playbackControlRoot is hidden
-                        if (element == R.id.bottomControls
+                        if ((element == R.id.bottomControls
+                                || element == R.id.bottom_player_controls_panel)
                                 && child.findViewById(R.id.playbackControlRoot)
                                 .getVisibility() != View.VISIBLE) {
                             return super.onInterceptTouchEvent(parent, child, event);
@@ -317,9 +319,10 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
             return;
         }
 
-        if (PlayerHolder.getInstance().exitMainPlayerFullscreenForMiniPlayer()) {
-            activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-        }
+        PlayerHolder.getInstance().exitMainPlayerFullscreenForMiniPlayer();
+        // Navigation may already have cleared the fullscreen flag before collapsing the
+        // sheet. Release its orientation request even when there is no UI state left to exit.
+        activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
     }
 
     @Nullable

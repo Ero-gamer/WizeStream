@@ -22,8 +22,10 @@ import org.schabi.newpipe.extractor.stream.StreamType.POST_LIVE_AUDIO_STREAM
 import org.schabi.newpipe.extractor.stream.StreamType.POST_LIVE_STREAM
 import org.schabi.newpipe.extractor.stream.StreamType.VIDEO_STREAM
 import org.schabi.newpipe.info_list.StreamUploaderNavigation
+import org.schabi.newpipe.learning.VideoNoteBadges
 import org.schabi.newpipe.util.GridTitleDisplayPolicy
 import org.schabi.newpipe.util.Localization
+import org.schabi.newpipe.util.ShortsThumbnailPolicy
 import org.schabi.newpipe.util.StreamTypeUtil
 import org.schabi.newpipe.util.image.CoilHelper
 
@@ -43,6 +45,9 @@ data class StreamItem(
      * Can be used e.g. for highlighting a item.
      */
     var execBindEnd: Consumer<ListStreamItemBinding>? = null
+
+    /** Shared reactive index supplied by the feed view, independently of highlighting. */
+    var noteBadges: VideoNoteBadges? = null
 
     /** Opens the uploader without changing the click behavior of the rest of the stream card. */
     var onUploaderSelected: ((ChannelInfoItem) -> Unit)? = null
@@ -120,6 +125,10 @@ data class StreamItem(
 
         updateDurationMarginForProgress(viewBinding)
 
+        viewBinding.itemThumbnailView.scaleType = ShortsThumbnailPolicy.scaleType(
+            stream.url,
+            stream.duration
+        )
         CoilHelper.loadThumbnail(viewBinding.itemThumbnailView, stream.thumbnailUrl)
 
         if (itemVersion != ItemVersion.MINI) {
@@ -127,6 +136,7 @@ data class StreamItem(
                 getStreamInfoDetailLine(viewBinding.itemAdditionalDetails.context)
         }
 
+        noteBadges?.bindStream(viewBinding.root, stream)
         execBindEnd?.accept(viewBinding)
     }
 
@@ -206,6 +216,7 @@ data class StreamItem(
     }
 
     private fun getFormattedRelativeUploadDate(context: Context): String? {
+        if (stream.hasSyntheticUploadDate) return null
         val uploadDate = stream.uploadDate
         return if (uploadDate != null) {
             var formattedRelativeTime = Localization.relativeTime(uploadDate)

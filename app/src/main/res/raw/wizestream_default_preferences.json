@@ -16,7 +16,7 @@
   "enable_playback_resume": true,
   "file_replacement_character": "_",
   "update_app_key": false,
-  "default_resolution": "720p60",
+  "default_resolution": "auto_resolution",
   "channel_tabs": [
     "show_channel_tabs_livestreams",
     "show_channel_tabs_likes",
@@ -65,6 +65,7 @@
   "start_main_player_fullscreen_key": false,
   "youtube_restricted_mode_enabled": false,
   "hide_members_only_videos": false,
+  "blocked_keywords_channel_names": false,
   "playback_pitch_key": 1.0,
   "file_rename_charset": "CHARSET_MOST_SPECIAL",
   "streams_notifications_network": "wifi",

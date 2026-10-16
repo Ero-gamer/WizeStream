@@ -4,6 +4,498 @@ Release history is listed newest first. The number beside each release is its An
 
 ## Unreleased
 
+## WizeStream 1.31.9 (`1031009`)
+
+### Improvements
+
+- Added Allowed channels under Content blocking, with subscribed-channel selection and exceptions to keyword, channel, and AiSList hiding rules; explicitly blocked videos remain hidden.
+- Added 60% size presets for video titles, channel names, metadata, and comment bodies.
+- Added optional bold media and comment text under Appearance, preserving each view’s original typeface when disabled.
+- Made Bookmarks and local playlist separators independent, reorderable rows, including consecutive and trailing headings, with migration of existing separators.
+- Updated play queue controls to use the active Material primary color and kept the AMOLED header black in portrait and landscape.
+
+### Fixes
+
+- Fixed the startup crash after selecting Eye Comfort by using resource-backed theme colors.
+- Fixed dragging interruptions in lists with separators and restored the original presentation row when undoing video removal.
+- Added one DASH URL refresh with playback position preserved before Full live falls back to HLS after sustained buffering.
+
+## WizeStream 1.31.8 (`1031008`)
+
+### Improvements
+
+- Added Eye Comfort (warm dark) under Appearance → Theme, with a fixed warm interface palette across services while leaving video colors unchanged.
+- Added remote-accessible Move up and Move down actions to Customize home, preserving touch dragging and saving reordered sections.
+- Added a headphones icon beside the selected audio-track name in the player.
+- Added Edit/Done controls to Bookmarks and local playlists, with reorder handles available only while editing.
+- Added an optional Content setting for swipe-to-remove playlist videos, disabled by default and active only in Edit mode; home-screen playlists retain horizontal tab navigation.
+
+### Fixes
+
+- Fixed the LIVE mode selector’s single-choice row inflation failure with player themes, including AMOLED styling.
+- Preserved intervening section order when dragging home sections across multiple rows and guarded invalid positions.
+
+## WizeStream 1.31.7 (`1031007`)
+
+### Improvements
+
+- Load seek-preview images only when needed, with a bounded cache to reduce background downloads and memory use.
+- Added a setting to show the floating feed refresh button, hidden by default; enabling it replaces swipe-to-refresh and the upper refresh button, with theme-colored background and icon.
+- Combined channel subscription and group actions into a split control.
+- Added optional rounded upper corners to the collapsed mini-player, enabled by default under Appearance, with corners flattening as the player expands.
+- Moved the Notes button beside Comments; tap opens video notes and long press adds a note at the current playback position.
+
+### Fixes
+
+- Fixed seek-preview frame selection for rectangular storyboard grids.
+- Recreated feed card holders after orientation changes to prevent mixed portrait and landscape layouts after refresh.
+- Fixed the LIVE mode selector crash on phones and Samsung DeX by attaching its dialog to the player window.
+
+## WizeStream 1.31.6 (`1031006`)
+
+### Improvements
+
+- Added Normal and Full live playback modes, with a saved default and a mode selector on long press of LIVE; Full live can rewind through the history supplied by the stream.
+- Displayed the current resolution beside Auto and added live automatic quality-change notifications at the top in portrait and bottom in landscape.
+- Added Delete playlist to the local playlist menu, with confirmation and support for empty playlists.
+- Added Copy all notes to the Notes tab and per-video notes dialog, preserving timestamps, Unicode, and line breaks.
+- Enabled adding and editing video notes during playback, with long press of the note button starting a note at the current position.
+- Added note-text search from Bookmarks and local playlists, with matching videos shown once and notes accessible on long press.
+- Added named separators to Bookmarks and local playlists, with rename/delete on long press, per-profile storage, and headings excluded from playback queues and video counts.
+- Added a floating feed refresh action, including Cancel during refresh and remote access by pressing Up from the first video row.
+- Added 50% size options for video titles, channel names, video metadata, and comment text.
+- Added long press of Open in browser to open on-demand YouTube videos at the current playback timestamp.
+
+### Fixes
+
+- Protected the selected Learning lesson when reopening a new detail screen and ignored late player callbacks after dismissal.
+- Removed the TV focus effect that could tint the video or add white edges while retaining focus outlines on controls.
+- Preserved repeated directional seeking on TV after seek feedback appears, while retaining navigation when controls are explicitly opened.
+
+## WizeStream 1.31.5 (`1031005`)
+
+### Improvements
+
+- Added Cyan to the theme color options for light, dark, and AMOLED themes.
+- Made Auto list view use Card view unless the active layout selects a large landscape grid.
+- Added monthly search collection for a selected year, with a shared page limit, cancellation, and duplicate removal.
+- Added adaptive two-pane Settings and Learning overview layouts in windows at least 840 dp wide.
+- Reduced YouTube loading overhead by overlapping independent metadata requests with playback extraction and replacing CPU polling with completion waits.
+- Removed the recurring Keep Android Open startup dialog.
+
+### Fixes
+
+- Kept the selected Learning lesson during player reconnection.
+- Attached DeX and desktop player dialogs to the player window to improve their visibility.
+- Added one stream URL refresh for sustained live HLS buffering stalls while preserving playback position and pause state.
+- Fixed asynchronous response completion races and preserved live timing when metadata arrives before playback selection.
+
+## WizeStream 1.31.4 (`1031004`)
+
+### Improvements
+
+- Added optional fullscreen playback dimming after 1, 5, or 10 minutes of inactivity, with continued audio and wake-up by touch, remote key, or accessibility action; disabled by default.
+- Added separate portrait and landscape video layouts and grid column counts under Appearance, available on phones without enabling Tablet mode.
+- Preserved the visible list position when changing layouts on rotation and included the orientation-specific preferences in device sync.
+- Updated the play queue with Material 3 surfaces, rounded thumbnails, two-line titles, a clearer playback icon, and accessible drag handles.
+- Replaced the decorative empty-list face and message with a simple "No items to show" message.
+
+### Fixes
+
+- Applied saved channel intro skips when resuming inside the intro, while respecting explicit timestamp links, manual seeks, and positions beyond the intro.
+- Opened player choices in themed Material dialogs in DeX and desktop mode to address menus that did not open, with safe dismissal during player teardown.
+
+## WizeStream 1.31.3 (`1031003`)
+
+### Improvements
+
+- Added optional independent player volume for quieter playback on earbuds, with a saved level that works with mute, audio focus, equalizer headroom, and sleep timer fades.
+- Updated the speed and pitch dialog to Material 3 with themed sliders and wrapping selection chips.
+- Removed the 100% speed/pitch adjustment step; retained the 1%, 5%, 10%, and 25% choices.
+- Added a compact, focusable CC control for subtitle selection when captions are available.
+- Improved portrait player metadata spacing and readability.
+- Added custom search batches of 1–250 additional pages and configurable request delays of 0.3–10 seconds, defaulting to 2 seconds.
+- Added subscribe and unsubscribe actions for channels inside subscription groups.
+
+### Fixes
+
+- Replaced cascading player choice menus with flat anchored lists to address the DeX quality-menu crash.
+- Kept speed/pitch selection labels visible on narrow dialog layouts.
+- Preserved underlying stream and manifest extraction errors in copied reports and explained Invidious responses containing no media formats or manifests.
+- Redacted URLs and bounded Invidious API error details consistently, including errors returned with successful HTTP status codes.
+- Kept usable YouTube streams playable when watch-next metadata requests time out, with one metadata retry before continuing without optional details.
+- Enabled the existing one-shot DASH-to-HLS recovery for sustained live playback stalls in the background and rearmed recovery when resuming while already buffering.
+- Added rate-limited debug diagnostics for live media loading and buffer state without logging signed media URLs or request headers.
+- Updated BiliBili video metadata requests to the public WBI endpoint to reduce legacy-endpoint risk-control failures while preserving playback authentication and multipart selection.
+
+## WizeStream 1.31.2 (`1031002`)
+
+### Improvements
+
+- Replaced the long search filter popup with compact chips in expandable sections.
+- Added saved filter presets with load, update, and delete actions, separated by profile, service, and YouTube Music mode.
+- Added custom YouTube upload-date ranges and relative days, weeks, months, and years, resolved once per search and retained across pagination.
+- Added longest-first and shortest-first search result ordering with optional minimum and maximum durations in hours.
+- Added cancellable deeper search with progress, retained partial results, duplicate removal, and bounded collection of additional pages.
+- Added a Last lesson watched card to Learning progress, with course context and progress, resuming unfinished lessons and replaying completed lessons.
+- Updated the Subscribe button with theme-aware outlined and filled states for light, dark, AMOLED, and Material You palettes.
+- Added support for proxied Invidious DASH-only livestream manifests while retaining instance-only media requests.
+
+### Fixes
+
+- Prevented native player hover tooltips from crashing in DeX and other desktop windows.
+- Kept navigation surfaces and their system-bar backing pure black in AMOLED mode.
+- Applied updated per-channel intro and outro skip settings during playback, including after pause and resume.
+- Parsed Odysee publication timestamps supplied as SDK strings.
+- Recovered safely from unreadable main-tab saved state.
+- Explained Invidious API access failures and unusable media or manifest responses with instance-switching guidance.
+- Prevented truncated DASH XML from stalling manifest parsing and retained network-error handling.
+
+## WizeStream 1.31.1 (`1031001`)
+
+### Improvements
+
+- Added inline subscription sorting with drag handles, multi-selection, and bulk moves under existing or new separators.
+- Preserved selected channels and their relative order across search and service filters while saving layouts automatically per profile.
+- Added search to blocked channels, videos, and keywords.
+- Added saved Invidious instances and a quick instance selector.
+
+### Fixes
+
+- Restored fullscreen when replaying videos on Android TV and made Back close embedded playback.
+- Reported video output surface dimensions to video effects.
+- Prevented rejected Invidious suggestion requests from interrupting search and clarified API failures.
+- Loaded Invidious feeds through paginated channel tabs, including enabled video, Shorts, and live-stream tabs within existing feed limits.
+
+## WizeStream 1.31.0 (`1031000`)
+
+### New features
+
+- Added an Arrange subscriptions editor with drag-and-drop ordering and named separators, independent of channel groups.
+- Saved subscription layouts separately for each profile and included them in full settings backups.
+- Added timestamp playback and text-only copying through long-press gestures in video notes.
+
+### Improvements
+
+- Added separate timestamp, text, edit, and delete controls to the per-video notes dialog.
+- Kept the fullscreen button visible on phones and desktop displays.
+
+### Fixes
+
+- Prevented player popup menus from opening on detached views or invalid windows and dismissed them during player teardown.
+- Applied fullscreen entry and exit directly in DeX and multi-window mode, including Back navigation.
+- Prevented desktop windows from re-entering fullscreen automatically because of landscape orientation.
+- Refreshed YouTube media URLs after CDN connection failures, preserving playback position and limiting recovery attempts.
+
+## WizeStream 1.30.0 (`1030000`)
+
+### New features
+
+- Added an optional Invidious backend for YouTube.
+- Added an optional external downloader.
+- Added a quick profile switcher to the navigation drawer.
+- Added saved-note indicators to video thumbnails.
+
+### Improvements
+
+- Made per-channel intro and outro skip durations available from the playback speed dialog.
+- Used a Material switch for new-stream notifications.
+
+### Fixes
+
+- Kept scrolling responsive while marking videos as watched.
+- Restored video output when replaying the current item and improved video-surface cleanup.
+- Made TV Back dismiss player lists and controls before exiting fullscreen, without a timed double press.
+- Restored the player channel name and removed tinting from uploader avatars.
+- Used Odysee publication dates before claim-update timestamps.
+- Added an HLS fallback for live DASH HTTP 403 failures after refresh retries.
+- Validated profile identities consistently across device synchronization categories.
+
+## WizeStream 1.29.0 (`1029000`)
+
+### New features
+
+- Added an optional all-platform scope for What's New and channel groups; the current-platform scope remains the default.
+- Added per-channel intro and outro skip durations, disabled by default.
+- Included lesson difficulty settings in backups and added optional synchronization of ratings between matching profiles.
+
+### Fixes
+
+- Validated profile synchronization identities consistently across Android versions.
+- Added a dark branded starting window on Android versions before Android 12.
+- Preserved muxed video selection during temporary background playback, including Odysee streams.
+- Kept the fullscreen button visible on Android TV when tablet mode is disabled.
+
+## WizeStream 1.28.0 (`1028000`)
+
+### Improvements
+
+- Added a Video metadata text size setting for views, upload dates, and duration badges.
+- Restored D-pad focus movement between fullscreen player controls and options on Android TV.
+
+### Fixes
+
+- Displayed video controls for manifest-only YouTube live streams instead of an audio-only icon.
+- Added a one-time HLS retry when a manifest-only YouTube live stays buffering after playback begins.
+
+## WizeStream 1.27.0 (`1027000`)
+
+### New features
+
+- Added an assignable Sync now remote shortcut that runs device synchronization without leaving playback.
+- Added an optional animated Wavy player slider under Video and audio settings; Standard remains the default.
+- Added timestamped sharing, browser opening, and link copying for non-live YouTube playback.
+- Added per-video notes to saved-playlist menus, available without Learning mode and shared across playlists containing the same video.
+
+### Improvements
+
+- Added an explicit Refresh all now action while normal What's New refreshes respect the configured update threshold.
+- Improved feed focus entry and kept player directional shortcuts within playback controls.
+- Added clearer profile catalog validation diagnostics without exposing profile identities.
+
+### Fixes
+
+- Fixed channel description/About-tab crashes and the BitChute trending tab icon crash.
+- Refreshed cached stream information after stale YouTube DASH manifests.
+- Improved Odysee claim validation and handling of missing optional stream metadata.
+- Applied the saved night mode on initial activity creation and used the active theme background for feed and subscription pages.
+- Minimized embedded playback on Back and released forced phone orientation when collapsing the player.
+
+## WizeStream 1.26.1 (`1026001`)
+
+### New features
+
+- Added playlist-wide Learning notes browsing, editing, deletion, and export as plain text or CSV.
+- Added optional, per-profile lesson difficulty ratings with searchable review, hardest-first ordering, and Hard-only shortcuts. Ratings are stored locally and are not synchronized between devices.
+- Added Subscribe and Channel groups actions to remote-video long-press menus.
+
+### Improvements
+
+- Added a bottom-sheet recommendations grid on TV when pressing Up during fullscreen playback with controls hidden, plus explicitly assignable D-pad shortcuts.
+- Added uploader avatars to player metadata, enlarged related-video thumbnails, reduced channel details, and added a 70% title/channel text-size option.
+- Updated subscription menus and the group reorder dialog to Material 3 styling.
+
+### Fixes
+
+- Backfilled older videos during full-channel What's New refreshes and prevented undated Shorts from crowding source-dated videos out of the feed's 500-item selection.
+- Avoided redundant video-surface rebinds that could trigger Media3 detach timeouts on Android 13 and newer.
+- Restored content-aware portrait and square-video fullscreen on phones.
+- Kept channel avatars and titles visible during group selection and preserved the picker's scroll position.
+- Repaired Odysee JSON-RPC requests, API error handling, channel Videos tabs, and continuation loading for subscription feeds.
+
+## WizeStream 1.26.0 (`1026000`)
+
+### New features
+
+- Added a Learning home tab, course navigation, daily reminders, and per-profile Learning inclusion.
+- Added an optional SmartTube-inspired fullscreen player layout and customizable remote buttons for playback and navigation.
+
+### Improvements
+
+- Kept fullscreen comments and replies beside the playing video instead of minimizing playback.
+- Improved group-channel browsing and media display controls across phones and Android TV.
+- Kept Device Sync discovery on physical LAN networks when a VPN is active.
+- Improved native Picture-in-Picture so portrait video remains visible as the PiP window resizes.
+- Added safer watch-history deletion and new search-history controls.
+
+### Fixes
+
+- Refreshed subscriptions and groups immediately when switching profiles.
+- Restored live rewind and prevented silence skipping from interfering with live playback.
+- Prevented normal search queries from being misidentified as Odysee links and handled services without a default kiosk at startup.
+- Stopped undated Shorts from appearing as newly published and preserved explicit Shorts metadata so ordinary short-duration videos remain Videos.
+
+## WizeStream 1.25.0 (`1025000`)
+
+### New features
+
+- Added an experimental Odysee service integration.
+
+### Improvements
+
+- Improved Android TV fullscreen D-pad navigation between playback controls and the action row.
+- Made fullscreen comments panels more compact on TVs and phones.
+- Applied the Subscriptions grid column presets to feed groups as well as subscribed channels.
+- Improved native-library compatibility with Android devices using 16 KB memory pages.
+
+### Fixes
+
+- Restored SoundCloud charts using public chart playlists when the legacy charts endpoint is unavailable.
+- Fixed a crash when opening the channels inside a feed group.
+- Kept fullscreen exit available after playback finishes, including Back, the exit button, and the swipe-down gesture.
+
+### Known issues
+
+- Odysee search, playback, channel browsing, and subscription refresh may fail. Request handling, URL recognition, and pagination fixes are still pending.
+
+## WizeStream 1.24.0 (`1024000`)
+
+### New features
+
+- Added a privacy-friendly GitHub star prompt that can open the project page without requiring a WizeStream account.
+- Added direct access to the channels inside an opened subscription group.
+- Added fullscreen comments in a side panel so video playback can remain fullscreen while browsing comments.
+- Added configurable Subscriptions grid column presets alongside the responsive Auto layout.
+
+### Improvements
+
+- Improved Subscriptions search so both subscribed channels and feed groups are filtered by the current query.
+- Improved Feed refresh progress with the current/total count and the channel currently being fetched.
+- Improved Android TV playback with direct D-pad left/right seeking and double-Back player exit behavior.
+- Improved Shorts thumbnail presentation so portrait artwork is preserved instead of zoom-cropped.
+- Added subscription/group actions to searched channels and improved playlist thumbnail/title click targets.
+
+### Fixes
+
+- Show clearer content-unavailable messages for known removed, copyright-taken-down, community-guidelines, deleted, and unavailable videos while preserving real parser errors.
+- Honor the global members-only hiding preference consistently in the Feed.
+
+## WizeStream 1.23.0 (`1023000`)
+
+### New features
+
+- Added optional danmaku bullet-comment overlays for supported services.
+- Added live-stream quality selection and adaptive Auto quality for supported streams.
+- Added Local Media exclusions plus an option to group the All media view by filesystem folder.
+- Added selectable Device Sync categories so individual data groups can be enabled or disabled per paired device.
+
+### Improvements
+
+- Modernized dialogs, settings, cards, chips, playback controls, search surfaces, and shared widgets across WizeStream with Material 3 styling and typography.
+- Improved Android TV D-pad navigation and moved Mark as watched / Mark as unwatched higher in stream action menus for easier TV access.
+- Added NicoNico live discovery and clearer reporting when subscriptions fail to refresh.
+- Improved native Picture-in-Picture transitions and kept the Android navigation area transparent in landscape.
+- Improved fullscreen behavior, adaptive video quality selection, decoder fallback, and transient audio-output recovery.
+
+### Fixes
+
+- Restored long-press actions for searched bookmarked playlists, including Tablet Mode Grid view, while keeping reordering disabled during filtering.
+- Kept fullscreen letterbox areas black and made explicit fullscreen entry consistently target landscape.
+- Guarded search refreshes after view teardown and repaired legacy profile timestamp values during migration.
+
+## WizeStream 1.22.2 (`1022002`)
+
+### Improvements
+
+- Added “Subscribe to profile…” to the Subscriptions-tab long-press menu when multiple local profiles exist, without switching away from the active profile.
+- Added an optional “Also match channel names” Content Blocking setting so blocked keywords can also match uploader and channel names while preserving the existing title-only behavior by default; the setting is synchronized through Device Sync.
+- Improved channel pages on phones in landscape by hiding the banner and allowing the metadata header to scroll away, leaving more room for the video list.
+
+### Fixes
+
+- Prevented double-tap fast seeking from crashing on affected Android resource configurations when the internal seek counter resets to zero.
+- Improved Rumble playback reliability by reusing the active session headers for page requests.
+- Handled incomplete PeerTube API responses more safely instead of failing the whole request.
+
+## WizeStream 1.22.1 (`1022001`)
+
+### Improvements
+
+- Applied the existing default, popup, and mobile-data video resolution preferences consistently across supported video services, including PeerTube and Rumble, with nearest-quality fallback when the exact resolution is unavailable.
+- Kept BitChute videos playable when BitChute marks them as restricted while preserving the existing restricted-content preference behavior for other services.
+- Refined the optional Wavy feed refresh indicator so the inactive track stays straight and only the active progress wave moves.
+
+### Fixes
+
+- Fixed a crash when opening Settings > Content after the members-only preference was moved into Content Blocking.
+- Prevented Rumble tracking redirects from looping while resolving stream URLs.
+- Recovered safely from stale main-tab fragment state after activity or navigation restoration.
+
+## WizeStream 1.22.0 (`1022000`)
+
+### New features
+
+- Added channel actions for assigning subscriptions to feed groups and subscribing a channel to another local profile without switching profiles.
+- Added device synchronization for blocked videos, blocked channels, blocked keywords, blocking targets, and AiSList behavior while keeping downloaded AiSList data local to each device.
+- Added members-only feed visibility controls, including a global Content Blocking preference synchronized across devices and a feed-specific visibility choice.
+- Added an Appearance option to choose Wavy or Line for the feed refresh indicator, with Wavy as the default.
+
+### Improvements
+
+- Hardened profile deletion behind a neutral Profile actions entry while retaining the final confirmation step and protecting the Default profile.
+- Added bounded retries for transient YouTube channel-feed server errors while keeping permanent client errors non-retryable.
+- Polished stream action dialogs with Material 3 surfaces, typography, and touch targets.
+- Reused the active decoder across repeated Video Adjustments off/on cycles to avoid unnecessary player rebuilds.
+
+### Fixes
+
+- Restored PeerTube TLS compatibility on Android 6 and 7.0 while preserving normal hostname verification and modern Android trust behavior.
+- Prevented Android 17 foreground-service restart crashes in the persistent Device Sync listener.
+- Restored uncropped bookmarked playlist artwork in Card and Grid views.
+- Recovered the video surface after native Picture-in-Picture entry to prevent intermittent black video, especially with portrait streams.
+- Kept What’s New feed cards consistent when switching or refreshing List, Card, and Grid layouts.
+
+## WizeStream 1.21.0 (`1021000`)
+
+### New features
+
+- Added local profiles so subscriptions, feed groups, watch history and progress, playlists, saved search feeds, imports, backups, and device synchronization can stay separated between profiles.
+- Added on-device comment translation that keeps translation local to the device and hides the Translate action when a comment is already in the selected language.
+- Added optional AiSList-based labeling, warning, or hiding for likely AI-generated YouTube content with local matching and no WizeStream account requirement.
+
+### Improvements
+
+- Made backup, restore, NewPipe/PipePipe/Takeout migration, and peer-to-peer device synchronization profile-aware while preserving compatibility with the Default profile.
+- Made content-blocking refreshes target-aware so blocking a channel or video refreshes Related immediately without unnecessarily reloading Comments.
+- Made bookmarked playlist and YouTube Music album artwork more resilient by falling back from playlist artwork to track artwork and then uploader artwork while preserving valid stored covers.
+
+### Fixes
+
+- Prevented Android service restarts with a null PlayerService intent from crashing playback startup.
+- Fixed repeated Video Adjustments rebuilds on Android 9 by giving each ExoPlayer its own LoadControl and preserving the latest playback position.
+- Corrected comment-translation action alignment and long-text layout handling.
+
+## WizeStream 1.20.2 (`1020002`)
+
+### Improvements
+
+- Expand large-screen and TV grid density with 5–7 column choices and optional compact navigation.
+- Refine Material popup contrast and typography across shared popup surfaces.
+- Combine feed filters and refresh controls into one compact row, showing the full-width loader and cancel action only while refreshing.
+- Support PeerTube channel video tabs.
+
+### Fixes
+
+- Restore YouTube and YouTube Music playlist or album artwork when page-header hero-image metadata is returned.
+- Recover unsupported legacy player resize preferences instead of crashing playback startup on affected TVs and Android devices.
+- Keep paired devices reachable for background synchronization with a persistent trusted-device listener.
+- Handle missing or null avatar metadata without crashing image loading.
+- Make rotation-driven fullscreen content-aware so portrait and near-square videos are not forced into landscape fullscreen.
+- Keep manually entered portrait-video fullscreen locked to portrait until fullscreen exits.
+
+## WizeStream 1.20.1 (`1020001`)
+
+### Improvements
+
+- Keep feed refresh non-blocking with a compact progress strip while the feed and filter controls remain usable.
+- Modernize stream-action, toolbar, and queue popup surfaces with rounded Material styling and the active theme palette.
+
+### Fixes
+
+- Prevent video-adjustment restarts from reusing a Media3 track selector across replacement players, fixing Android 9 crashes while preserving adjustment values.
+- Repair fullscreen enter and exit when orientation and split/two-pane layout state become temporarily inconsistent.
+- Restore full-backup import on the current database schema, including Android TV devices.
+- Recover device sync from transient peer disconnects by refreshing LAN addresses and retrying the failed category once.
+- Restore YouTube and YouTube Music playlist or album artwork in Bookmarked Playlists when the newer playlist metadata layout is returned.
+
+## WizeStream 1.20.0 (`1020000`)
+
+### New features
+
+- Choose Fixed, Follow system rotation, or Follow device sensors for player rotation, while preserving the previous rotation preference.
+- Sort the subscription feed by publication date or first discovery, preserving discovery times when videos are refreshed.
+
+### Fixes
+
+- Import channel groups and their memberships with subscriptions from NewPipe and PipePipe database backups, preserving existing groups and channels.
+- Fall back to normal playback when video-adjustment effects cannot be installed, and keep crash reporting independent of automatic-download initialization.
+- Improve contrast between played, buffered, and remaining seek-bar ranges across player modes and themes.
+- Restrict saved CAPTCHA and restricted-mode cookies to secure YouTube destinations, including redirected requests.
+- Play inline subtitle text produced by Bilibili and YouTube caption deduplication without downloading it again.
+- Register the media session during internal playback startup so Android can receive the configured custom notification actions.
+
+## WizeStream 1.19.0 (`1019000`)
+
 ### New features
 
 - Added Video adjustments to the expanded player controls, with live brightness, contrast, and
@@ -17,12 +509,17 @@ Release history is listed newest first. The number beside each release is its An
 - Improved settings search with localized names, descriptions, available choices, and category paths,
   including caption translation and SponsorBlock categories. Results open and highlight the option;
   going back restores the search, and the query survives rotation.
+- Updated playback and image-loading components.
 
 ### Fixes
 
+- Restored the correct player height, system bars, and detail tabs when returning in portrait after
+  turning the screen off in landscape fullscreen. Fixed rotation into fullscreen becoming stuck
+  after this sequence.
+- Removed the unintended "I-albhamu - " prefix from YouTube Music album titles while preserving
+  user-created playlist names.
 - Fixed NicoNico video and background-audio playback authentication, including fresh session cookies
   for playlists, segments, and encryption keys. Restored the final quality option in HLS playlists.
-
 - Fixed the player seek bar retaining the default green color with wallpaper-based themes, including
   Black mode and popup playback. Its colors now refresh when the selected theme changes.
 - Kept the rounded settings search field inset from the screen edge.
@@ -778,3 +1275,4 @@ Based on NewPipe 0.28.7.
 - Completed Material readiness audit and release QA documentation.
 
 Based on NewPipe 0.28.7.
+

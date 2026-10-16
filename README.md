@@ -20,21 +20,6 @@
 
 <hr>
 
-<div align="center">
-  <h3>🧪 Help test WizeFiles Beta</h3>
-  <p>
-    We’re looking for testers for <strong>WizeFiles</strong>, a new Android file manager
-    from the developer of WizeStream.
-  </p>
-  <p>
-    <a href="https://github.com/wizdom13/WizeFiles-Beta">
-      <strong>View the beta, download it, and share your feedback →</strong>
-    </a>
-  </p>
-</div>
-
-<hr>
-
 <p align="center">
   <a href="#important-project-notice">Project notice</a> •
   <a href="#what-is-wizestream">About</a> •
@@ -104,6 +89,7 @@ Project highlights:
 
 - Material 3-inspired design with Material You colors, manual color presets, and customizable navigation
 - Account-free playback, subscriptions, feeds, playlists, downloads, and history across supported services
+- Local profiles for separate Personal, Work, Study, or other contexts without platform accounts
 - Dedicated YouTube Music and YouTube Shorts destinations, advanced search filters, and channel sorting
 - Main, background, and popup playback with advanced gestures, a sleep timer, multi-audio selection,
   and per-channel playback profiles
@@ -195,8 +181,13 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
 - Filter channel, feed, and playlist lists by unwatched, partially watched, live, or Shorts content
 - Block individual videos or channels from their context menus, and hide content by title or uploader
   keywords using locally stored rules under **Settings > Content > Blocked content**
+- Optionally sync AiSList directly from its upstream project: high-confidence channels are hidden,
+  while medium-confidence warnlist channels can be ignored, labeled, warned before playback, or
+  hidden; matching stays on-device without sending the viewed video or channel to a detection service
 - Browse video details, related content, comments, playlists, and channel tabs where supported
 - Choose **Top** or **Newest** YouTube comments using the service's ordering, including pagination
+- Translate comments on demand with Android's on-device translation service when the required
+  language pair is already available locally, with no cloud translation fallback
 - Sort channel videos by latest, popular, or oldest, and use podcast tabs on supported channels
 - Browse read-only YouTube channel posts with text, images, polls, links, videos, playlists, and
   pagination
@@ -280,9 +271,11 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
   URL metadata in generated MP3, M4A, MP4, and Opus files
 - Choose Storage Access Framework or compatible legacy storage locations, separate audio and video
   folders, mobile-network behavior, retry limits, filename handling, and a serial download queue
-- Import or export subscriptions separately, create complete WizeStream backups, and merge compatible
-  watch history, playback positions, local playlists, settings, and SponsorBlock data from NewPipe-style
-  backups without replacing existing data
+- Import or export subscriptions separately, create complete WizeStream backups that preserve all
+  local profiles, and merge compatible watch history, playback positions, local playlists, settings,
+  and SponsorBlock data from NewPipe-style backups without replacing existing data
+- NewPipe/PipePipe migrations, Google Takeout imports, and NewPipe-compatible exports target the
+  profile that is active when the operation starts; search history and app-wide settings remain global
 - Schedule daily or weekly backups in **Settings > Backup and restore** after choosing a folder;
   retain the latest seven automatic backups and see the last backup status. Android determines the
   exact run time based on battery and storage conditions
@@ -341,9 +334,10 @@ data migration, and synchronization details.
 
 - Encrypted peer-to-peer pairing between trusted WizeStream devices using a one-time QR code
 - Manual synchronization and automatic background synchronization over Wi-Fi or Ethernet
-- Synchronization of subscriptions, feed groups, local and remote playlists, watch history, playback
-  progress, home tabs, content filters, channel playback profiles, allowlisted settings, optional
-  search history, and completed-download metadata
+- Synchronization of local profile identities plus profile-scoped subscriptions, feed groups,
+  local and remote playlists, watch history, and playback progress; home tabs, content filters,
+  channel playback profiles, allowlisted settings, optional search history, and completed-download
+  metadata remain app-wide
 - A **Download on this device** action when synchronized download metadata has no matching local file
 
 See [Device synchronization](#device-synchronization) for behavior, limitations, and setup.
@@ -555,6 +549,7 @@ Completed or in-progress areas include:
 - About-screen attribution
 - Player gestures and pinned-video behavior
 - Secure device pairing and peer-to-peer synchronization
+- Local profile management and active-profile switching
 - Automatic background synchronization and download-metadata recovery
 - Search filters, channel sorting, podcast tabs, and channel playback profiles
 - Multi-audio selection and clearer audio-track labels

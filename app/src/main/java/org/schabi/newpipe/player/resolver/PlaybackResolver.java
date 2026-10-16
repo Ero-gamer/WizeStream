@@ -1,5 +1,6 @@
 package org.schabi.newpipe.player.resolver;
 
+import static org.schabi.newpipe.MainActivity.DEBUG;
 import static org.schabi.newpipe.extractor.stream.AudioStream.UNKNOWN_BITRATE;
 import static org.schabi.newpipe.extractor.stream.VideoStream.RESOLUTION_UNKNOWN;
 import static org.schabi.newpipe.player.helper.PlayerDataSource.LIVE_STREAM_EDGE_GAP_MILLIS;
@@ -21,10 +22,12 @@ import androidx.media3.exoplayer.smoothstreaming.SsMediaSource;
 import androidx.media3.exoplayer.smoothstreaming.manifest.SsManifest;
 import androidx.media3.exoplayer.smoothstreaming.manifest.SsManifestParser;
 
+import org.schabi.newpipe.extractor.services.youtube.invidious.InvidiousBackend;
 import org.schabi.newpipe.extractor.MediaFormat;
 import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.services.youtube.ItagItem;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.CreationException;
+import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeAdaptiveDashManifestCreator;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeOtfDashManifestCreator;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubePostLiveStreamDvrDashManifestCreator;
 import org.schabi.newpipe.extractor.services.youtube.dashmanifestcreators.YoutubeProgressiveDashManifestCreator;
@@ -38,12 +41,14 @@ import org.schabi.newpipe.player.datasource.NonUriHlsDataSourceFactory;
 import org.schabi.newpipe.player.helper.PlayerDataSource;
 import org.schabi.newpipe.player.mediaitem.MediaItemTag;
 import org.schabi.newpipe.player.mediaitem.StreamInfoTag;
+import org.schabi.newpipe.player.mediasource.YoutubeLiveMediaSource;
 import org.schabi.newpipe.util.Localization;
 import org.schabi.newpipe.util.StreamTypeUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -196,6 +201,13 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
     @Nullable
     static MediaSource maybeBuildLiveMediaSource(final PlayerDataSource dataSource,
                                                  final StreamInfo info) {
+        return maybeBuildLiveMediaSource(dataSource, info, false);
+    }
+
+    @Nullable
+    static MediaSource maybeBuildLiveMediaSource(final PlayerDataSource dataSource,
+                                                 final StreamInfo info,
+                                                 final boolean preferHls) {
         final boolean isManifestOnlyYoutubeLive = isManifestOnlyYoutubeLive(info);
         if (!StreamTypeUtil.isLiveStream(info.getStreamType())
                 && !isManifestOnlyYoutubeLive) {
@@ -204,20 +216,40 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
 
         try {
             final StreamInfoTag tag = StreamInfoTag.of(info);
-            // Manifest-only YouTube lives can expose a finite DASH DVR window whose declared end
-            // is only a few seconds beyond the initial live edge. HLS keeps refreshing its media
-            // playlist, so prefer it for this narrow fallback path. Some YouTube client responses
-            // also misclassify these lives as regular videos, so do not rely on the stream type.
-            if (isManifestOnlyYoutubeLive) {
+            if (dataSource.isNormalLive(info.getUrl()) && !info.getHlsUrl().isEmpty()) {
                 return buildLiveMediaSource(dataSource, info.getHlsUrl(), C.CONTENT_TYPE_HLS, tag);
+            }
+            // HLS can expose only a few seconds of history. Prefer a refreshable DASH DVR window,
+            // while retaining HLS recovery for finite snapshots and failed DASH preparation.
+            if (isManifestOnlyYoutubeLive) {
+                final MediaSource hls = buildLiveMediaSource(
+                        dataSource, info.getHlsUrl(), C.CONTENT_TYPE_HLS, tag);
+                if (info.getDashMpdUrl().isEmpty() || preferHls) {
+                    if (DEBUG) {
+                        Log.d(TAG, preferHls ? "Live source: HLS after DASH stall"
+                                : "Live source: HLS only");
+                    }
+                    return hls;
+                }
+                if (DEBUG) {
+                    Log.d(TAG, "Live source: DASH with HLS fallback");
+                }
+                return new YoutubeLiveMediaSource(buildLiveMediaSource(
+                        dataSource, info.getDashMpdUrl(), C.CONTENT_TYPE_DASH, tag), hls);
             }
             // Prefer DASH over HLS because of an exoPlayer bug that causes the background player to
             // also fetch the video stream even if it is supposed to just fetch the audio stream.
             if (!info.getDashMpdUrl().isEmpty()) {
+                if (DEBUG) {
+                    Log.d(TAG, "Live source: DASH");
+                }
                 return buildLiveMediaSource(
                         dataSource, info.getDashMpdUrl(), C.CONTENT_TYPE_DASH, tag);
             }
             if (!info.getHlsUrl().isEmpty()) {
+                if (DEBUG) {
+                    Log.d(TAG, "Live source: HLS");
+                }
                 return buildLiveMediaSource(dataSource, info.getHlsUrl(), C.CONTENT_TYPE_HLS, tag);
             }
         } catch (final Exception e) {
@@ -246,14 +278,18 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
                 factory = dataSource.getLiveSsMediaSourceFactory();
                 break;
             case C.CONTENT_TYPE_DASH:
-                if (metadata.getServiceId() == ServiceList.YouTube.getServiceId()) {
+                if (usesInvidious(metadata)) {
+                    factory = dataSource.getLiveDashMediaSourceFactory(true);
+                } else if (metadata.getServiceId() == ServiceList.YouTube.getServiceId()) {
                     factory = dataSource.getLiveYoutubeDashMediaSourceFactory();
                 } else {
                     factory = dataSource.getLiveDashMediaSourceFactory();
                 }
                 break;
             case C.CONTENT_TYPE_HLS:
-                factory = dataSource.getLiveHlsMediaSourceFactory();
+                factory = usesInvidious(metadata)
+                        ? dataSource.getLiveHlsMediaSourceFactory(true)
+                        : dataSource.getLiveHlsMediaSourceFactory();
                 break;
             case C.CONTENT_TYPE_OTHER:
             case C.CONTENT_TYPE_RTSP:
@@ -273,13 +309,19 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
     //endregion
 
 
+    private static boolean usesInvidious(final MediaItemTag metadata) {
+        return metadata.getServiceId() == ServiceList.YouTube.getServiceId()
+                && InvidiousBackend.isEnabled();
+    }
+
     //region Generic media sources
     static MediaSource buildMediaSource(final PlayerDataSource dataSource,
                                         final Stream stream,
                                         final StreamInfo streamInfo,
                                         final String cacheKey,
                                         final MediaItemTag metadata) throws ResolverException {
-        if (streamInfo.getService() == ServiceList.YouTube) {
+        if (streamInfo.getService() == ServiceList.YouTube
+                && !InvidiousBackend.isEnabled()) {
             return createYoutubeMediaSource(stream, streamInfo, dataSource, cacheKey, metadata);
         }
 
@@ -308,10 +350,14 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
             throw new ResolverException("Non URI progressive contents are not supported");
         }
         throwResolverExceptionIfUrlNullOrEmpty(stream.getContent());
-        final ProgressiveMediaSource.Factory factory =
-                metadata.getServiceId() == ServiceList.BiliBili.getServiceId()
-                        ? dataSource.getBilibiliProgressiveMediaSourceFactory()
-                        : dataSource.getProgressiveMediaSourceFactory();
+        final ProgressiveMediaSource.Factory factory;
+        if (metadata.getServiceId() == ServiceList.BiliBili.getServiceId()) {
+            factory = dataSource.getBilibiliProgressiveMediaSourceFactory();
+        } else if (usesInvidious(metadata)) {
+            factory = dataSource.getProgressiveMediaSourceFactory(true);
+        } else {
+            factory = dataSource.getProgressiveMediaSourceFactory();
+        }
         return factory.createMediaSource(
                 metadata.asMediaItem().buildUpon()
                         .setUri(Uri.parse(stream.getContent()))
@@ -325,9 +371,12 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
                                                         final MediaItemTag metadata)
             throws ResolverException {
 
+        final DashMediaSource.Factory factory = usesInvidious(metadata)
+                ? dataSource.getDashMediaSourceFactory(true)
+                        : dataSource.getDashMediaSourceFactory();
         if (stream.isUrl()) {
             throwResolverExceptionIfUrlNullOrEmpty(stream.getContent());
-            return dataSource.getDashMediaSourceFactory().createMediaSource(
+            return factory.createMediaSource(
                     metadata.asMediaItem().buildUpon()
                             .setUri(Uri.parse(stream.getContent()))
                             .setCustomCacheKey(cacheKey)
@@ -335,7 +384,7 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
         }
 
         try {
-            return dataSource.getDashMediaSourceFactory().createMediaSource(
+            return factory.createMediaSource(
                     createDashManifest(stream.getContent(), stream),
                     metadata.asMediaItem().buildUpon()
                             .setUri(manifestUrlToUri(stream.getManifestUrl()))
@@ -379,7 +428,9 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
                 factory = dataSource.getNiconicoHlsMediaSourceFactory(cookie);
                 uri = uri.buildUpon().fragment(null).build();
             } else {
-                factory = dataSource.getHlsMediaSourceFactory(null);
+                factory = usesInvidious(metadata)
+                        ? dataSource.getHlsMediaSourceFactory(null, true)
+                        : dataSource.getHlsMediaSourceFactory(null);
             }
             return factory.createMediaSource(
                     metadata.asMediaItem().buildUpon()
@@ -392,8 +443,10 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
                 new NonUriHlsDataSourceFactory.Builder();
         hlsDataSourceFactoryBuilder.setPlaylistString(stream.getContent());
 
-        return dataSource.getHlsMediaSourceFactory(hlsDataSourceFactoryBuilder)
-                .createMediaSource(metadata.asMediaItem().buildUpon()
+        final HlsMediaSource.Factory factory = usesInvidious(metadata)
+                ? dataSource.getHlsMediaSourceFactory(hlsDataSourceFactoryBuilder, true)
+                : dataSource.getHlsMediaSourceFactory(hlsDataSourceFactoryBuilder);
+        return factory.createMediaSource(metadata.asMediaItem().buildUpon()
                         .setUri(manifestUrlToUri(stream.getManifestUrl()))
                         .setCustomCacheKey(cacheKey)
                         .build());
@@ -538,6 +591,29 @@ public interface PlaybackResolver extends Resolver<StreamInfo, MediaSource> {
             default:
                 throw new ResolverException("Unsupported delivery method for YouTube contents: "
                         + deliveryMethod);
+        }
+    }
+
+    static MediaSource buildYoutubeAdaptiveVideoMediaSource(
+            final PlayerDataSource dataSource,
+            final List<VideoStream> videoStreams,
+            final StreamInfo streamInfo,
+            final MediaItemTag metadata) throws ResolverException {
+        if (videoStreams.size() < 2) {
+            throw new ResolverException("Adaptive video source requires at least two streams");
+        }
+        final VideoStream first = videoStreams.get(0);
+        try {
+            final String manifestString = YoutubeAdaptiveDashManifestCreator
+                    .fromProgressiveVideoStreams(videoStreams, streamInfo.getDuration());
+            final DashManifest manifest = createDashManifest(manifestString, first);
+            return dataSource.getYoutubeDashMediaSourceFactory().createMediaSource(
+                    manifest,
+                    metadata.asMediaItem().buildUpon()
+                            .setUri(Uri.parse(first.getContent()))
+                            .build());
+        } catch (final CreationException | IOException | NullPointerException e) {
+            throw new ResolverException("Unable to build adaptive YouTube DASH source", e);
         }
     }
 

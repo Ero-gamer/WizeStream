@@ -17,6 +17,20 @@
             android:orientation="vertical"
             android:padding="16dp">
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/learning_review_shortcut"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/learning_dashboard_overview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:baselineAligned="false"
+                android:orientation="vertical">
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/learning_statistics_card"
                 android:layout_width="match_parent"
@@ -150,8 +164,28 @@
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="12sp"
                         tools:text="2 active · 1 completed playlists" />
+
+                    <org.schabi.newpipe.views.NewPipeTextView
+                        android:id="@+id/learning_dashboard_last_lesson_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="@string/learning_dashboard_last_lesson"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="?attr/colorOnSurface"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:id="@+id/learning_dashboard_last_lesson_list"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+
+            </LinearLayout>
 
             <org.schabi.newpipe.views.NewPipeTextView
                 android:id="@+id/learning_dashboard_content_title"

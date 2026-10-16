@@ -204,7 +204,7 @@ internal class HistorySyncProtocolController(
 
 private object HistorySyncCodec {
     private val json = Json {
-        encodeDefaults = true
+        encodeDefaults = false
         explicitNulls = false
         ignoreUnknownKeys = false
     }

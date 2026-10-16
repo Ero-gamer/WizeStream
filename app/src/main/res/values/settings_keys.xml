@@ -10,7 +10,6 @@
     <string name="saved_tabs_key">saved_tabs_key</string>
 
     <!-- Key values -->
-    <string name="kao_last_checked_key">kao_last_checked</string>
     <string name="api23_requirement_dialog_shown_key">api23_requirement_dialog_shown</string>
 
     <string name="download_path_video_key">download_path</string>
@@ -131,7 +130,9 @@
     </string-array>
 
     <string name="default_resolution_key">default_resolution</string>
-    <string name="default_resolution_value">720p60</string>
+    <string name="auto_resolution_key">auto_resolution</string>
+    <string name="default_resolution_value">@string/auto_resolution_key</string>
+    <string name="legacy_default_resolution_value">720p60</string>
     <string name="show_higher_resolutions_key">show_higher_resolutions</string>
     <string name="default_popup_resolution_key">default_popup_resolution</string>
     <string name="default_popup_resolution_value">480p</string>
@@ -148,6 +149,7 @@
     </string-array>
 
     <string-array name="resolution_list_values">
+        <item>@string/auto_resolution_key</item>
         <item>@string/best_resolution_key</item>
         <item>1080p60</item>
         <item>1080p</item>
@@ -159,6 +161,7 @@
         <item>144p</item>
     </string-array>
     <string-array name="resolution_list_description">
+        <item>@string/auto</item>
         <item>@string/best_resolution</item>
         <item>1080p60</item>
         <item>1080p</item>
@@ -301,6 +304,7 @@
     <string name="theme_color_neutral_value">neutral</string>
     <string name="theme_color_green_value">green</string>
     <string name="theme_color_blue_value">blue</string>
+    <string name="theme_color_cyan_value">cyan</string>
     <string name="theme_color_purple_value">purple</string>
     <string name="theme_color_orange_value">orange</string>
     <string name="theme_color_pink_value">pink</string>
@@ -312,6 +316,7 @@
         <item>@string/theme_color_neutral_value</item>
         <item>@string/theme_color_green_value</item>
         <item>@string/theme_color_blue_value</item>
+        <item>@string/theme_color_cyan_value</item>
         <item>@string/theme_color_purple_value</item>
         <item>@string/theme_color_orange_value</item>
         <item>@string/theme_color_pink_value</item>
@@ -323,6 +328,7 @@
         <item>@string/theme_color_neutral_title</item>
         <item>@string/theme_color_green_title</item>
         <item>@string/theme_color_blue_title</item>
+        <item>@string/theme_color_cyan_title</item>
         <item>@string/theme_color_purple_title</item>
         <item>@string/theme_color_orange_title</item>
         <item>@string/theme_color_pink_title</item>
@@ -510,6 +516,7 @@
     <string name="feed_show_live_items_key">feed_show_live_items</string>
     <string name="feed_show_video_items_key">feed_show_video_items</string>
     <string name="feed_show_shorts_items_key">feed_show_shorts_items</string>
+    <string name="feed_show_members_only_items_key">feed_show_members_only_items</string>
 
     <string name="show_thumbnail_key">show_thumbnail_key</string>
 
@@ -1564,37 +1571,90 @@
         <item>1440p</item>
     </string-array>
 
+    <string name="orientation_default_key">default</string>
+    <string name="list_view_mode_portrait_key">list_view_mode_portrait</string>
+    <string name="list_view_mode_landscape_key">list_view_mode_landscape</string>
+    <string name="grid_columns_portrait_key">grid_columns_portrait</string>
+    <string name="grid_columns_landscape_key">grid_columns_landscape</string>
+    <string-array name="orientation_list_view_mode_values">
+        <item>@string/orientation_default_key</item>
+        <item>@string/list_view_mode_auto_key</item>
+        <item>@string/list_view_mode_list_key</item>
+        <item>@string/list_view_mode_grid_key</item>
+        <item>@string/list_view_mode_card_key</item>
+        </string-array>
+    <string-array name="orientation_list_view_mode_description">
+        <item>@string/orientation_default</item>
+        <item>@string/auto</item>
+        <item>@string/list</item>
+        <item>@string/grid</item>
+        <item>@string/card</item>
+        </string-array>
+    <string-array name="orientation_grid_columns_values">
+        <item>@string/orientation_default_key</item>
+        <item>@string/grid_columns_auto_key</item>
+        <item>@string/grid_columns_two_key</item>
+        <item>@string/grid_columns_three_key</item>
+        <item>@string/grid_columns_four_key</item>
+        <item>@string/grid_columns_five_key</item>
+        <item>@string/grid_columns_six_key</item>
+        <item>@string/grid_columns_seven_key</item>
+        </string-array>
+    <string-array name="orientation_grid_columns_description">
+        <item>@string/orientation_default</item>
+        <item>@string/auto</item>
+        <item>@string/grid_columns_two</item>
+        <item>@string/grid_columns_three</item>
+        <item>@string/grid_columns_four</item>
+        <item>@string/grid_columns_five</item>
+        <item>@string/grid_columns_six</item>
+        <item>@string/grid_columns_seven</item>
+        </string-array>
     <string name="list_view_mode_key">list_view_mode</string>
     <string name="grid_columns_key">grid_columns</string>
     <string name="grid_columns_auto_key">auto</string>
     <string name="grid_columns_two_key">2</string>
     <string name="grid_columns_three_key">3</string>
     <string name="grid_columns_four_key">4</string>
+    <string name="grid_columns_five_key">5</string>
+    <string name="grid_columns_six_key">6</string>
+    <string name="grid_columns_seven_key">7</string>
     <string-array name="grid_columns_values">
         <item>@string/grid_columns_auto_key</item>
         <item>@string/grid_columns_two_key</item>
         <item>@string/grid_columns_three_key</item>
         <item>@string/grid_columns_four_key</item>
+        <item>@string/grid_columns_five_key</item>
+        <item>@string/grid_columns_six_key</item>
+        <item>@string/grid_columns_seven_key</item>
     </string-array>
     <string-array name="grid_columns_description">
         <item>@string/auto</item>
         <item>@string/grid_columns_two</item>
         <item>@string/grid_columns_three</item>
         <item>@string/grid_columns_four</item>
+        <item>@string/grid_columns_five</item>
+        <item>@string/grid_columns_six</item>
+        <item>@string/grid_columns_seven</item>
     </string-array>
     <string name="show_full_grid_titles_key">show_full_grid_titles</string>
+    <string name="compact_large_screen_navigation_key">compact_large_screen_navigation</string>
     <string name="comment_text_size_key">comment_text_size</string>
     <string name="comment_text_size_small_key">12</string>
     <string name="comment_text_size_medium_key">14</string>
     <string name="comment_text_size_large_key">16</string>
     <string name="comment_text_size_extra_large_key">18</string>
     <string-array name="comment_text_size_values">
+        <item>7</item>
+        <item>60%</item>
         <item>@string/comment_text_size_small_key</item>
         <item>@string/comment_text_size_medium_key</item>
         <item>@string/comment_text_size_large_key</item>
         <item>@string/comment_text_size_extra_large_key</item>
     </string-array>
     <string-array name="comment_text_size_description">
+        <item>50%</item>
+        <item>60%</item>
         <item>@string/comment_text_size_small</item>
         <item>@string/comment_text_size_medium</item>
         <item>@string/comment_text_size_large</item>
@@ -1782,6 +1842,13 @@
     <string name="sponsor_block_category_preview_key">sponsor_block_category_preview</string>
     <string name="sponsor_block_category_filler_key">sponsor_block_category_filler</string>
 
+    <!-- Danmaku / bullet comments -->
+    <string name="danmaku_enabled_key">danmaku_enabled</string>
+    <string name="danmaku_opacity_key">danmaku_opacity</string>
+    <string name="danmaku_text_size_key">danmaku_text_size</string>
+    <string name="danmaku_max_rows_key">danmaku_max_rows</string>
+    <string name="danmaku_duration_key">danmaku_duration</string>
+
     <!-- Search behavior -->
     <string name="search_button_behavior_key">search_button_behavior</string>
     <string name="search_button_behavior_current_tab_value">current_tab</string>
@@ -1794,4 +1861,62 @@
         <item>@string/search_button_behavior_current_tab</item>
         <item>@string/search_button_behavior_current_service</item>
     </string-array>
+    <string name="learning_playlist_navigation_key" translatable="false">learning_playlist_navigation</string>
+    <string name="video_title_text_size_key">video_title_text_size</string>
+    <string name="channel_name_text_size_key">channel_name_text_size</string>
+    <string-array name="media_text_size_values">
+        <item>50</item>
+        <item>60</item>
+        <item>70</item>
+        <item>80</item>
+        <item>90</item>
+        <item>100</item>
+        <item>110</item>
+        <item>125</item>
+        <item>150</item>
+    </string-array>
+    <string-array name="media_text_size_description">
+        <item>50%</item>
+        <item>60%</item>
+        <item>70%</item>
+        <item>80%</item>
+        <item>90%</item>
+        <item>@string/media_text_size_default</item>
+        <item>110%</item>
+        <item>125%</item>
+        <item>150%</item>
+    </string-array>
+    <string name="tv_related_sidebar_width_key">tv_related_sidebar_width</string>
+    <string-array name="tv_related_sidebar_width_values">
+        <item>compact</item>
+        <item>balanced</item>
+        <item>wide</item>
+    </string-array>
+    <string-array name="tv_related_sidebar_width_description">
+        <item>@string/tv_related_sidebar_compact</item>
+        <item>@string/tv_related_sidebar_balanced</item>
+        <item>@string/tv_related_sidebar_wide</item>
+    </string-array>
+
+    <string name="independent_player_volume_key">independent_player_volume</string>
+    <string name="playback_dimming_key">playback_dimming</string>
+    <string name="playback_dimming_delay_key">playback_dimming_delay</string>
+    <string-array name="playback_dimming_delay_values">
+        <item>60</item><item>300</item><item>600</item>
+    </string-array>
+    <string-array name="playback_dimming_delay_description">
+        <item>@string/playback_dimming_one_minute</item>
+        <item>@string/playback_dimming_five_minutes</item>
+        <item>@string/playback_dimming_ten_minutes</item>
+    </string-array>
+    <string name="default_live_mode_key" translatable="false">default_live_mode</string>
+    <string-array name="live_mode_values" translatable="false">
+        <item>normal</item>
+        <item>full</item>
+    </string-array>
+    <string-array name="live_mode_descriptions">
+        <item>@string/live_mode_normal</item>
+        <item>@string/live_mode_full</item>
+    </string-array>
+    <string name="feed_floating_refresh_key" translatable="false">feed_floating_refresh</string>
 </resources>

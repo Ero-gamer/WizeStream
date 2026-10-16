@@ -7,12 +7,15 @@ import android.os.SystemClock;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import androidx.media3.common.PlaybackException;
 import androidx.media3.datasource.HttpDataSource;
+import androidx.media3.exoplayer.dash.DashManifestStaleException;
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker;
 
 import org.schabi.newpipe.extractor.stream.VideoStream;
 import org.schabi.newpipe.player.playqueue.PlayQueueItem;
 
+import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
@@ -76,6 +79,29 @@ final class PlayerHttpErrorRecovery {
         }
     }
 
+    static final class OneShotRecoveryGuard {
+        @Nullable
+        private String currentRecoveryKey;
+        private boolean acquired;
+
+        boolean acquire(@NonNull final String recoveryKey) {
+            if (!recoveryKey.equals(currentRecoveryKey)) {
+                currentRecoveryKey = recoveryKey;
+                acquired = false;
+            }
+            if (acquired) {
+                return false;
+            }
+            acquired = true;
+            return true;
+        }
+
+        void reset() {
+            currentRecoveryKey = null;
+            acquired = false;
+        }
+    }
+
     static final class RecoveryAttempt {
         private final int number;
         private final long delayMillis;
@@ -94,6 +120,22 @@ final class PlayerHttpErrorRecovery {
         }
     }
 
+    static boolean isRecoverableAudioTrackInitFailure(final int errorCode) {
+        return errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED;
+    }
+
+    static boolean isRecoverableAv1DecoderInitFailure(
+            final int errorCode,
+            @Nullable final VideoStream stream) {
+        if (errorCode != PlaybackException.ERROR_CODE_DECODER_INIT_FAILED || stream == null) {
+            return false;
+        }
+
+        final String codec = stream.getCodec();
+        final String normalizedCodec = codec == null ? "" : codec.toLowerCase(Locale.ROOT);
+        return normalizedCodec.contains("av01") || normalizedCodec.contains("av1");
+    }
+
     static boolean isRecoverableYouTubeMediaUrlFailure(@NonNull final Throwable error,
                                                        @Nullable final PlayQueueItem item) {
         return item != null
@@ -103,8 +145,10 @@ final class PlayerHttpErrorRecovery {
 
     static boolean isRecoverableMediaUrlFailure(@NonNull final Throwable error) {
         return isRecoverableStatusCode(findInvalidResponseCode(error))
+                || hasYouTubeCdnConnectionFailure(error)
                 || hasUnknownHostCause(error)
-                || hasPlaylistStuckCause(error);
+                || hasPlaylistStuckCause(error)
+                || hasStaleDashManifestCause(error);
     }
 
     static boolean isYouTubeService(final int serviceId) {
@@ -130,6 +174,32 @@ final class PlayerHttpErrorRecovery {
         return null;
     }
 
+    static boolean hasYouTubeCdnConnectionFailure(@NonNull final Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof HttpDataSource.HttpDataSourceException) {
+                final HttpDataSource.HttpDataSourceException httpError =
+                        (HttpDataSource.HttpDataSourceException) current;
+                final String host = httpError.dataSpec == null
+                        ? null : httpError.dataSpec.uri.getHost();
+                final String normalizedHost = host == null ? "" : host.toLowerCase(Locale.ROOT);
+                if (httpError.type == HttpDataSource.HttpDataSourceException.TYPE_OPEN
+                        && (normalizedHost.equals("googlevideo.com")
+                        || normalizedHost.endsWith(".googlevideo.com"))) {
+                    Throwable cause = httpError.getCause();
+                    while (cause != null) {
+                        if (cause instanceof ConnectException) {
+                            return true;
+                        }
+                        cause = cause.getCause();
+                    }
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     static boolean hasUnknownHostCause(@NonNull final Throwable error) {
         Throwable current = error;
         while (current != null) {
@@ -145,6 +215,17 @@ final class PlayerHttpErrorRecovery {
         Throwable current = error;
         while (current != null) {
             if (current instanceof HlsPlaylistTracker.PlaylistStuckException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    static boolean hasStaleDashManifestCause(@NonNull final Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof DashManifestStaleException) {
                 return true;
             }
             current = current.getCause();
@@ -168,6 +249,18 @@ final class PlayerHttpErrorRecovery {
         return Integer.valueOf(403).equals(findInvalidResponseCode(error))
                 && diagnostic != null
                 && diagnostic.contains("client=ANDROID_VR");
+    }
+
+    static boolean isRejectedVideoFormat(@NonNull final Throwable error,
+                                          @Nullable final VideoStream stream) {
+        if (stream == null || stream.getItag() <= 0
+                || !Integer.valueOf(403).equals(findInvalidResponseCode(error))) {
+            return false;
+        }
+        final String diagnostic = findSafeRequestDiagnostic(error);
+        return diagnostic != null && java.util.regex.Pattern.compile(
+                "(?:^|,\\s*)itag=" + stream.getItag() + "(?:,|$)")
+                .matcher(diagnostic).find();
     }
 
     @Nullable

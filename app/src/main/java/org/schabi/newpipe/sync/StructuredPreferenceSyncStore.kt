@@ -10,6 +10,8 @@ import android.content.SharedPreferences
 import androidx.preference.PreferenceManager
 import org.schabi.newpipe.NewPipeDatabase
 import org.schabi.newpipe.database.AppDatabase
+import org.schabi.newpipe.profiles.ProfileManager
+import org.schabi.newpipe.util.AiSListSyncWorker
 import us.shandian.giga.get.sqlite.FinishedMissionStore
 
 internal interface StructuredPreferenceSyncStore {
@@ -43,8 +45,13 @@ internal class RoomStructuredPreferenceSyncStore internal constructor(
     private val context: Context,
     private val database: AppDatabase,
     override val localPeerId: String,
-    preferences: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context),
-    finishedMissionStore: FinishedMissionStore = FinishedMissionStore(context)
+    private val preferences: SharedPreferences =
+        PreferenceManager.getDefaultSharedPreferences(context),
+    finishedMissionStore: FinishedMissionStore = FinishedMissionStore(context),
+    canMaterializeProfile: (String) -> Boolean = { profileId ->
+        ProfileManager.getProfile(context, profileId) != null
+    },
+    private val onAiSListEnabledChanged: (Boolean) -> Unit = {}
 ) : StructuredPreferenceSyncStore {
     private val recordRepository = StructuredPreferenceRecordRepository(database, localPeerId)
     private val completedDownloadAdapter = CompletedDownloadSyncAdapter(
@@ -53,10 +60,16 @@ internal class RoomStructuredPreferenceSyncStore internal constructor(
         recordRepository
     )
     private val adapters = listOf(
-        FeedGroupSyncAdapter(database, recordRepository),
+        FeedGroupSyncAdapter(
+            database,
+            recordRepository,
+            canMaterializeProfile
+        ),
         HomeTabSyncAdapter(context, preferences, database, recordRepository),
         ChannelProfileSyncAdapter(preferences, recordRepository),
+        LessonDifficultySyncAdapter(preferences, recordRepository, canMaterializeProfile),
         FilterSyncAdapter(context, preferences, recordRepository),
+        ContentBlockingSyncAdapter(context, preferences, recordRepository),
         PortableSettingsSyncAdapter(context, preferences, recordRepository),
         completedDownloadAdapter
     ).associateBy(StructuredPreferenceCategoryAdapter::category)
@@ -101,10 +114,26 @@ internal class RoomStructuredPreferenceSyncStore internal constructor(
         changes: List<StructuredPreferenceChange>
     ): StructuredPreferenceApplyResult {
         val adapter = adapter(category)
-        return recordRepository.applyChanges(category, changes) {
+        val aiSListKey = context.getString(org.schabi.newpipe.R.string.aislist_enabled_key)
+        val previousAiSListEnabled = if (category == StructuredPreferenceCategory.CONTENT_BLOCKING) {
+            preferences.getBoolean(aiSListKey, false)
+        } else {
+            false
+        }
+        val result = recordRepository.applyChanges(category, changes) {
             adapter.materialize()
             recordRepository.saveSnapshot(category, adapter.snapshotHash())
         }
+        if (
+            category == StructuredPreferenceCategory.CONTENT_BLOCKING &&
+            result.affectedRecords > 0
+        ) {
+            val aiSListEnabled = preferences.getBoolean(aiSListKey, false)
+            if (aiSListEnabled != previousAiSListEnabled) {
+                onAiSListEnabledChanged(aiSListEnabled)
+            }
+        }
+        return result
     }
 
     override fun clearPeerKnowledge() {
@@ -135,7 +164,10 @@ internal class RoomStructuredPreferenceSyncStore internal constructor(
                     localPeerId = AndroidSyncStateRepository(context)
                         .loadOrCreateIdentity()
                         .peerId
-                        .toBase58()
+                        .toBase58(),
+                    onAiSListEnabledChanged = { enabled ->
+                        AiSListSyncWorker.setEnabled(context.applicationContext, enabled)
+                    }
                 ).also { instance = it }
             }
         }

@@ -10,9 +10,11 @@ import static com.google.android.material.tabs.TabLayout.INDICATOR_GRAVITY_TOP;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.os.BadParcelableException;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Parcelable;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
@@ -28,6 +30,7 @@ import android.widget.RelativeLayout;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.app.ActionBar;
 import androidx.core.graphics.Insets;
 import androidx.core.view.MenuItemCompat;
@@ -62,6 +65,8 @@ import org.schabi.newpipe.settings.tabs.HomeNavigationModeResolver;
 import org.schabi.newpipe.settings.tabs.Tab;
 import org.schabi.newpipe.settings.tabs.TabletNavigationPositionResolver;
 import org.schabi.newpipe.settings.tabs.TabsManager;
+import org.schabi.newpipe.settings.tabs.TabsJsonHelper;
+import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.KeyboardUtil;
 import org.schabi.newpipe.util.NavigationHelper;
@@ -112,7 +117,7 @@ public class MainFragment extends BaseFragment
     private String mainTabsPositionKey;
     private String bottomNavigationLabelsKey;
     private String bottomNavigationLabelsValue;
-    private boolean tabletNavigation;
+    private boolean largeScreenNavigation;
 
     /*//////////////////////////////////////////////////////////////////////////
     // Fragment's LifeCycle
@@ -136,10 +141,15 @@ public class MainFragment extends BaseFragment
                 Log.d(TAG, "TabsManager.SavedTabsChangeListener: "
                         + "onTabsChanged called, isResumed = " + isResumed());
             }
-            if (isResumed()) {
-                setupTabs();
-            } else {
-                hasTabsChanged = true;
+            hasTabsChanged = true;
+            if (isResumed() && binding != null) {
+                // Preference listeners run from a snapshot. Finish notifying the current tabs
+                // before replacing them, so detached children cannot receive this same change.
+                binding.getRoot().post(() -> {
+                    if (isResumed() && binding != null && hasTabsChanged) {
+                        setupTabs();
+                    }
+                });
             }
         });
 
@@ -219,6 +229,7 @@ public class MainFragment extends BaseFragment
         if (navigationChanged) {
             updateBottomNavigationItems();
         }
+        updateBottomNavigationLabelVisibility();
         updateMainNavigationMode();
         scheduleBottomNavigationRemeasure();
     }
@@ -378,7 +389,7 @@ public class MainFragment extends BaseFragment
     private void setupTabs() {
         tabsSetupInProgress = true;
         tabsList.clear();
-        tabsList.addAll(tabsManager.getTabs());
+        tabsList.addAll(tabsManager.getVisibleTabs());
 
         final boolean replacePagerAdapter = pagerAdapter == null
                 || !pagerAdapter.sameTabs(tabsList);
@@ -436,9 +447,10 @@ public class MainFragment extends BaseFragment
         final String defaultPosition = getString(
                 R.string.tablet_navigation_position_default_value);
         final String position = prefs.getString(getString(positionKey), defaultPosition);
-        tabletNavigation = DeviceUtils.isTablet(requireContext());
+        largeScreenNavigation = DeviceUtils.isTablet(requireContext())
+                || DeviceUtils.isTv(requireContext());
         final boolean useNavigationRail = TabletNavigationPositionResolver.useNavigationRail(
-                tabletNavigation, orientation, position);
+                largeScreenNavigation, orientation, position);
         final NavigationBarView selectedNavigation = useNavigationRail
                 ? navigationRailView : bottomNavigationView;
         if (bottomNavigation == selectedNavigation) {
@@ -833,6 +845,13 @@ public class MainFragment extends BaseFragment
             return;
         }
 
+        if (isNavigationRail() && activity instanceof MainActivity
+                && ((MainActivity) activity).isCompactLargeScreenNavigationEnabled()) {
+            bottomNavigation.setLabelVisibilityMode(
+                    NavigationBarView.LABEL_VISIBILITY_UNLABELED);
+            return;
+        }
+
         final int labelVisibilityMode;
         if (getString(R.string.bottom_navigation_labels_always_value)
                 .equals(bottomNavigationLabelsValue)) {
@@ -857,7 +876,7 @@ public class MainFragment extends BaseFragment
         final boolean navigationRail = isNavigationRail();
         final HomeNavigationMode navigationMode = HomeNavigationModeResolver
                 .resolveNavigationMode(tabsList.size(), bottom);
-        final boolean showBottomNavigation = tabletNavigation
+        final boolean showBottomNavigation = largeScreenNavigation
                 ? tabsList.size() <= getNavigationItemLimit()
                 : navigationMode == HomeNavigationMode.BOTTOM_NAVIGATION;
         final boolean showTabLayout = !showBottomNavigation
@@ -979,17 +998,20 @@ public class MainFragment extends BaseFragment
     }
 
     private int getNavigationRailWidth(@NonNull final View navigation) {
-        return navigation.getWidth() > 0
-                ? navigation.getWidth()
-                : getResources().getDimensionPixelSize(R.dimen.main_navigation_rail_width);
+        if (activity instanceof MainActivity) {
+            return ((MainActivity) activity).getMainNavigationRailWidth();
+        }
+        if (navigation.getLayoutParams().width > 0) {
+            return navigation.getLayoutParams().width;
+        }
+        return getResources().getDimensionPixelSize(R.dimen.main_navigation_rail_width);
     }
 
     private void setNavigationRailContentInset(final boolean visible) {
         if (!isNavigationRail()) {
             return;
         }
-        final int inset = visible
-                ? getResources().getDimensionPixelSize(R.dimen.main_navigation_rail_width) : 0;
+        final int inset = visible ? getNavigationRailWidth(bottomNavigation) : 0;
         setStartMargin(requireActivity().findViewById(R.id.fragment_holder), inset);
         setStartMargin(requireActivity().findViewById(R.id.toolbar_layout), inset);
     }
@@ -1038,7 +1060,11 @@ public class MainFragment extends BaseFragment
 
     public static final class SelectedTabsPagerAdapter
             extends FragmentStatePagerAdapterMenuWorkaround {
+        private static final String STATE_PROFILE = "tab_profile";
+        private static final String STATE_LAYOUT = "tab_layout";
+        private final String profileId;
         private final Context context;
+        private final FragmentManager fragmentManager;
         private final List<Tab> internalTabsList;
         /**
          * Keep reference to LocalPlaylistFragments, because their data can be modified by the user
@@ -1055,6 +1081,8 @@ public class MainFragment extends BaseFragment
                                          final List<Tab> tabsList) {
             super(fragmentManager, BEHAVIOR_RESUME_ONLY_CURRENT_FRAGMENT);
             this.context = context;
+            this.profileId = ProfileManager.getActiveProfileId(context);
+            this.fragmentManager = fragmentManager;
             this.internalTabsList = new ArrayList<>(tabsList);
         }
 
@@ -1098,6 +1126,99 @@ public class MainFragment extends BaseFragment
             return primaryFragment;
         }
 
+        @Nullable
+        @Override
+        public Parcelable saveState() {
+            final Parcelable saved = super.saveState();
+            final Bundle state = saved instanceof Bundle
+                    ? new Bundle((Bundle) saved) : new Bundle();
+            state.putString(STATE_PROFILE, profileId);
+            state.putString(STATE_LAYOUT, TabsJsonHelper.getJsonToSave(internalTabsList));
+            return state;
+        }
+
+        @VisibleForTesting
+        static boolean matchesTabState(final Bundle state, final String profile,
+                                       final List<Tab> tabs) {
+            return profile.equals(state.getString(STATE_PROFILE))
+                    && TabsJsonHelper.getJsonToSave(tabs).equals(state.getString(STATE_LAYOUT));
+        }
+
+        @Override
+        public void restoreState(@Nullable final Parcelable state,
+                                 @Nullable final ClassLoader loader) {
+            if (!(state instanceof Bundle)) {
+                super.restoreState(state, loader);
+                return;
+            }
+
+            final Bundle saved = (Bundle) state;
+            final ClassLoader stateLoader = resolveStateClassLoader(loader);
+            saved.setClassLoader(stateLoader);
+            try {
+                if (!matchesTabState(saved, profileId, internalTabsList)) {
+                    // FragmentStatePagerAdapter keys its fragments and saved states by position.
+                    // A hidden Learning tab shifts those positions; a profile switch also changes
+                    // which data the fragments may display. Never restore either stale catalog.
+                    final var transaction = fragmentManager.beginTransaction();
+                    for (final String key : saved.keySet()) {
+                        if (key.matches("f[0-9]+")) {
+                            try {
+                                final Fragment fragment = fragmentManager.getFragment(saved, key);
+                                if (fragment != null) {
+                                    transaction.remove(fragment);
+                                }
+                            } catch (final IllegalStateException ignored) {
+                                // The fragment was already discarded by FragmentManager.
+                            }
+                        }
+                    }
+                    transaction.commitAllowingStateLoss();
+                    return;
+                }
+                super.restoreState(removeMissingFragmentEntries(
+                        saved,
+                        stateLoader,
+                        (bundle, key) -> fragmentManager.getFragment(bundle, key)
+                ), stateLoader);
+            } catch (final BadParcelableException e) {
+                Log.w("MainFragment", "Discarding unreadable main-tab pager state", e);
+            }
+        }
+
+        @NonNull
+        @VisibleForTesting
+        static ClassLoader resolveStateClassLoader(@Nullable final ClassLoader loader) {
+            return loader != null ? loader : Fragment.class.getClassLoader();
+        }
+
+        @VisibleForTesting
+        static Bundle removeMissingFragmentEntries(
+                @NonNull final Bundle state,
+                @Nullable final ClassLoader loader,
+                @NonNull final FragmentStateValidator validator) {
+            final Bundle cleanedState = new Bundle(state);
+            cleanedState.setClassLoader(resolveStateClassLoader(loader));
+            for (final String key : new ArrayList<>(cleanedState.keySet())) {
+                if (!key.startsWith("f")) {
+                    continue;
+                }
+                try {
+                    validator.validate(cleanedState, key);
+                } catch (final IllegalStateException e) {
+                    Log.w("MainFragment",
+                            "Discarding stale main-tab fragment state for " + key, e);
+                    cleanedState.remove(key);
+                }
+            }
+            return cleanedState;
+        }
+
+        @VisibleForTesting
+        interface FragmentStateValidator {
+            void validate(@NonNull Bundle state, @NonNull String key);
+        }
+
         @Override
         public int getItemPosition(@NonNull final Object object) {
             // Causes adapter to reload all Fragments when
@@ -1111,7 +1232,8 @@ public class MainFragment extends BaseFragment
         }
 
         public boolean sameTabs(final List<Tab> tabsToCompare) {
-            return internalTabsList.equals(tabsToCompare);
+            return profileId.equals(ProfileManager.getActiveProfileId(context))
+                    && internalTabsList.equals(tabsToCompare);
         }
     }
 }

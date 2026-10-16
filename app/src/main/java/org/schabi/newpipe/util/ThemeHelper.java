@@ -41,6 +41,10 @@ public final class ThemeHelper {
     }
 
     public static void applyThemeColor(final Context context) {
+        if (isEyeComfortSelected(context)) {
+            context.getTheme().applyStyle(R.style.EyeComfortTheme, true);
+            return;
+        }
         if (shouldApplyDynamicColors(context)) {
             DynamicColors.applyToActivityIfAvailable((Activity) context);
             applyBlackSurfaceOverlay(context);
@@ -60,7 +64,7 @@ public final class ThemeHelper {
     }
 
     public static boolean shouldApplyDynamicColors(final Context context) {
-        return context instanceof Activity
+        return !isEyeComfortSelected(context) && context instanceof Activity
                 && isFollowSystemThemeColor(context);
     }
 
@@ -71,6 +75,10 @@ public final class ThemeHelper {
     }
 
     public static void applyThemeColorOverlay(final Context context) {
+        if (isEyeComfortSelected(context)) {
+            context.getTheme().applyStyle(R.style.EyeComfortTheme, true);
+            return;
+        }
         final int overlay = getThemeColorOverlay(context);
         if (overlay != 0) {
             context.getTheme().applyStyle(overlay, true);
@@ -88,6 +96,8 @@ public final class ThemeHelper {
             return R.style.ThemeOverlay_wizestream_ThemeColor_Green;
         } else if (isThemeColor(context, R.string.theme_color_blue_value, "blue")) {
             return R.style.ThemeOverlay_wizestream_ThemeColor_Blue;
+        } else if (isThemeColor(context, R.string.theme_color_cyan_value, "cyan")) {
+            return R.style.ThemeOverlay_wizestream_ThemeColor_Cyan;
         } else if (isThemeColor(context, R.string.theme_color_purple_value, "purple")) {
             return R.style.ThemeOverlay_wizestream_ThemeColor_Purple;
         } else if (isThemeColor(context, R.string.theme_color_orange_value, "orange")) {
@@ -98,6 +108,11 @@ public final class ThemeHelper {
             return R.style.ThemeOverlay_wizestream_ThemeColor_Red;
         }
         return 0;
+    }
+
+    public static boolean isEyeComfortSelected(final Context context) {
+        return context.getString(R.string.eye_comfort_theme_key)
+                .equals(getSelectedThemeKey(context));
     }
 
     public static boolean isLightThemeSelected(final Context context) {
@@ -130,67 +145,13 @@ public final class ThemeHelper {
 
     @StyleRes
     private static int getDialogTheme(final Context context, final boolean minWidth) {
-        final boolean light = isLightThemeSelected(context);
-        final int defaultTheme = minWidth
-                ? (light ? R.style.LightDialogMinWidthTheme : R.style.DarkDialogMinWidthTheme)
-                : (light ? R.style.LightDialogTheme : R.style.DarkDialogTheme);
-        if (isFollowSystemThemeColor(context)) {
-            // A full dialog theme replaces the activity's Material You palette.
-            // Keep its colors (including black surfaces) and overlay only dialog styling.
-            return minWidth ? R.style.ThemeOverlay_wizestream_Dialog_MinWidth
-                    : R.style.ThemeOverlay_wizestream_Dialog;
-        }
-        if (isThemeColor(context, R.string.theme_color_wizestream_value,
-                "wizestream")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_wizestream
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_wizestream)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_wizestream
-                            : R.style.DarkDialogTheme_ThemeColor_wizestream);
-        } else if (isThemeColor(context, R.string.theme_color_neutral_value, "neutral")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Neutral
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Neutral)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Neutral
-                            : R.style.DarkDialogTheme_ThemeColor_Neutral);
-        } else if (isThemeColor(context, R.string.theme_color_green_value, "green")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Green
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Green)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Green
-                            : R.style.DarkDialogTheme_ThemeColor_Green);
-        } else if (isThemeColor(context, R.string.theme_color_blue_value, "blue")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Blue
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Blue)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Blue
-                            : R.style.DarkDialogTheme_ThemeColor_Blue);
-        } else if (isThemeColor(context, R.string.theme_color_purple_value, "purple")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Purple
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Purple)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Purple
-                            : R.style.DarkDialogTheme_ThemeColor_Purple);
-        } else if (isThemeColor(context, R.string.theme_color_orange_value, "orange")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Orange
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Orange)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Orange
-                            : R.style.DarkDialogTheme_ThemeColor_Orange);
-        } else if (isThemeColor(context, R.string.theme_color_pink_value, "pink")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Pink
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Pink)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Pink
-                            : R.style.DarkDialogTheme_ThemeColor_Pink);
-        } else if (isThemeColor(context, R.string.theme_color_red_value, "red")) {
-            return minWidth
-                    ? (light ? R.style.LightDialogMinWidthTheme_ThemeColor_Red
-                            : R.style.DarkDialogMinWidthTheme_ThemeColor_Red)
-                    : (light ? R.style.LightDialogTheme_ThemeColor_Red
-                            : R.style.DarkDialogTheme_ThemeColor_Red);
-        }
-        return defaultTheme;
+        // Dialogs should inherit the already-resolved activity palette (including
+        // Material You, custom theme colors, service accents, and AMOLED surfaces)
+        // and only add Material 3 dialog styling. Full dialog themes replace those
+        // resolved colors and are the main reason legacy-looking dialogs can diverge
+        // from the screen that launched them.
+        return minWidth ? R.style.ThemeOverlay_wizestream_Dialog_MinWidth
+                : R.style.ThemeOverlay_wizestream_Dialog;
     }
 
     private static boolean isThemeColor(final Context context, final int stringRes,
@@ -206,6 +167,9 @@ public final class ThemeHelper {
 
     @StyleRes
     public static int getThemeForService(final Context context, final int serviceId) {
+        if (isEyeComfortSelected(context)) {
+            return R.style.EyeComfortTheme;
+        }
         final Resources res = context.getResources();
         final String lightThemeKey = res.getString(R.string.light_theme_key);
         final String blackThemeKey = res.getString(R.string.black_theme_key);
@@ -246,6 +210,9 @@ public final class ThemeHelper {
 
     @StyleRes
     public static int getSettingsThemeStyle(final Context context) {
+        if (isEyeComfortSelected(context)) {
+            return R.style.EyeComfortSettingsTheme;
+        }
         final Resources res = context.getResources();
         final String lightTheme = res.getString(R.string.light_theme_key);
         final String blackTheme = res.getString(R.string.black_theme_key);
@@ -338,7 +305,8 @@ public final class ThemeHelper {
         final Resources res = context.getResources();
         if (selectedThemeKey.equals(res.getString(R.string.light_theme_key))) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
-        } else if (selectedThemeKey.equals(res.getString(R.string.dark_theme_key))
+        } else if (selectedThemeKey.equals(res.getString(R.string.eye_comfort_theme_key))
+                || selectedThemeKey.equals(res.getString(R.string.dark_theme_key))
                 || selectedThemeKey.equals(res.getString(R.string.black_theme_key))) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
         } else {
@@ -356,10 +324,32 @@ public final class ThemeHelper {
                 context.getResources().getDimensionPixelSize(R.dimen.channel_item_grid_min_width));
     }
 
+    public static String getOrientationPreference(final Context context, final int defaultKey,
+                                                   final int portraitKey, final int landscapeKey,
+                                                   final String fallback) {
+        final var preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        final boolean landscape = context.getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+        final String value = preferences.getString(context.getString(
+                landscape ? landscapeKey : portraitKey),
+                context.getString(R.string.orientation_default_key));
+        return context.getString(R.string.orientation_default_key).equals(value)
+                ? preferences.getString(context.getString(defaultKey), fallback) : value;
+    }
+
+    public static boolean isListLayoutPreference(final Context context, final String key) {
+        return java.util.Arrays.stream(new int[]{R.string.list_view_mode_key,
+                R.string.grid_columns_key, R.string.list_view_mode_portrait_key,
+                R.string.list_view_mode_landscape_key, R.string.grid_columns_portrait_key,
+                R.string.grid_columns_landscape_key})
+                .anyMatch(resource -> context.getString(resource).equals(key));
+    }
+
     public static ItemViewMode getItemViewMode(final Context context) {
-        final String listMode = PreferenceManager.getDefaultSharedPreferences(context)
-                .getString(context.getString(R.string.list_view_mode_key),
-                        context.getString(R.string.list_view_mode_value));
+        final String listMode = getOrientationPreference(context,
+                R.string.list_view_mode_key, R.string.list_view_mode_portrait_key,
+                R.string.list_view_mode_landscape_key,
+                context.getString(R.string.list_view_mode_value));
         final ItemViewMode result;
         if (listMode.equals(context.getString(R.string.list_view_mode_list_key))) {
             result = ItemViewMode.LIST;
@@ -371,7 +361,7 @@ public final class ThemeHelper {
             final Configuration configuration = context.getResources().getConfiguration();
             final boolean useGrid = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
                     && configuration.isLayoutSizeAtLeast(Configuration.SCREENLAYOUT_SIZE_LARGE);
-            result = useGrid ? ItemViewMode.GRID : ItemViewMode.LIST;
+            result = useGrid ? ItemViewMode.GRID : ItemViewMode.CARD;
         }
         return result;
     }

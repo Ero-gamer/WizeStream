@@ -19,6 +19,13 @@
         app:iconSpaceReserved="false" />
 
     <PreferenceScreen
+        android:fragment="org.schabi.newpipe.settings.TvRemoteSettingsFragment"
+        android:icon="@drawable/ic_tv"
+        android:title="@string/remote_keys_title"
+        android:summary="@string/remote_keys_summary"
+        app:iconSpaceReserved="false" />
+
+    <PreferenceScreen
         android:fragment="org.schabi.newpipe.settings.DownloadSettingsFragment"
         android:icon="@drawable/ic_file_download"
         android:title="@string/settings_category_downloads_title"
@@ -33,10 +40,24 @@
         app:iconSpaceReserved="false" />
 
     <PreferenceScreen
+        android:fragment="org.schabi.newpipe.settings.ProfilesSettingsFragment"
+        android:icon="@drawable/ic_person"
+        android:title="@string/profiles_title"
+        android:summary="@string/profiles_summary"
+        app:iconSpaceReserved="false" />
+
+    <PreferenceScreen
         android:fragment="org.schabi.newpipe.settings.HistorySettingsFragment"
         android:icon="@drawable/ic_history"
         android:title="@string/settings_category_history_title"
         android:summary="@string/settings_category_history_summary"
+        app:iconSpaceReserved="false" />
+
+    <PreferenceScreen
+        android:fragment="org.schabi.newpipe.settings.LocalMediaSettingsFragment"
+        android:icon="@drawable/ic_music_note"
+        android:title="@string/local_media"
+        android:summary="@string/local_media_settings_summary"
         app:iconSpaceReserved="false" />
 
     <PreferenceScreen

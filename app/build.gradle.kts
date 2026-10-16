@@ -96,6 +96,10 @@ configure<ApplicationExtension> {
         }
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
@@ -270,6 +274,9 @@ dependencies {
     // Open casting support for FCast and Chromecast-compatible receivers
     implementation("org.fcast:sender-sdk:0.6.1")
 
+    // JNA 5.17 fixes Android 16 KB page-size support in libjnidispatch.so.
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
+
     // Checkstyle
     checkstyle(libs.puppycrawl.checkstyle)
     ktlint(libs.pinterest.ktlint)
@@ -385,6 +392,7 @@ dependencies {
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockito.core)
+    testImplementation("org.robolectric:robolectric:4.17")
     testImplementation("org.junit.jupiter:junit-jupiter:5.13.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.13.4")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine:5.13.4")

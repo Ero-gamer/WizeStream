@@ -1,6 +1,7 @@
 package org.schabi.newpipe.extractor.services.rumble;
 
 import org.jsoup.Jsoup;
+import org.schabi.newpipe.extractor.NewPipe;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.schabi.newpipe.extractor.brave.AttachException;
@@ -35,6 +36,19 @@ public final class RumbleParsingHelper {
     }
 
     private static final Map<String, List<String>> HEADERS = new HashMap<>();
+
+    public static String removeQueryAndFragment(final String url) {
+        int end = url.length();
+        final int queryIndex = url.indexOf('?');
+        if (queryIndex >= 0) {
+            end = Math.min(end, queryIndex);
+        }
+        final int fragmentIndex = url.indexOf('#');
+        if (fragmentIndex >= 0) {
+            end = Math.min(end, fragmentIndex);
+        }
+        return url.substring(0, end);
+    }
 
     public static int parseDurationStringForRelatedStreams(final String input)
             throws ParsingException {
@@ -220,10 +234,9 @@ public final class RumbleParsingHelper {
     }
 
     /**
-     * Rumble needs a cookie to avoid 307 return codes for category browse.
+     * Rumble needs a cookie to avoid redirect loops and access challenges on public pages.
      *
-     * Generate random cookies -> seems to work for now. Used atm only in
-     * {@link org.schabi.newpipe.extractor.services.rumble.extractors.RumbleTrendingExtractor}
+     * Generate random cookies to establish the minimal anonymous session expected by Rumble.
      *
      * @return Cookie with random values
      */
@@ -305,7 +318,8 @@ public final class RumbleParsingHelper {
             final Downloader downloader,
             final String url)
             throws IOException, ReCaptchaException, ParsingException {
-        final Response response = downloader.get(url);
+        final Response response = downloader.get(
+                url, getMinimalHeaders(), NewPipe.getPreferredLocalization());
         final String rb = response.responseBody();
         final Document doc = Jsoup.parse(rb, url);
         checkIfContentIsAccessible(response, doc);

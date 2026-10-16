@@ -18,18 +18,24 @@ class DeviceSyncManager private constructor(context: Context) {
     private val stateRepository = AndroidSyncStateRepository(applicationContext)
     private val syncLogRepository = DeviceSyncLogRepository(applicationContext)
     private val peerDiscovery = AndroidPeerDiscovery(applicationContext)
+    private val profileSyncEngine = ProfileSyncEngine(
+        AndroidProfileSyncStore(applicationContext)
+    )
     private val subscriptionSyncEngine = SubscriptionSyncEngine(
-        RoomSubscriptionSyncStore.get(applicationContext)
+        RoomSubscriptionSyncStore.get(applicationContext),
+        ::isSubscriptionSyncEnabled
     )
     private val playlistSyncEngine = PlaylistSyncEngine(
-        RoomPlaylistSyncStore.get(applicationContext)
+        RoomPlaylistSyncStore.get(applicationContext),
+        ::isPlaylistSyncEnabled
     )
     private val historySyncEngine = HistorySyncEngine(
         RoomHistorySyncStore.get(applicationContext),
         ::isHistoryCategoryEnabled
     )
     private val structuredPreferenceSyncEngine = StructuredPreferenceSyncEngine(
-        RoomStructuredPreferenceSyncStore.get(applicationContext)
+        RoomStructuredPreferenceSyncStore.get(applicationContext),
+        ::isStructuredPreferenceCategoryEnabled
     )
     private val deviceName = listOf(Build.MANUFACTURER, Build.MODEL)
         .map(String::trim)
@@ -53,6 +59,7 @@ class DeviceSyncManager private constructor(context: Context) {
             peerAddressResolver = { peer ->
                 peerDiscovery.addressesFor(peer)
             },
+            profileSyncEngine = profileSyncEngine,
             subscriptionSyncEngine = subscriptionSyncEngine,
             listenAddress = "/ip4/0.0.0.0/tcp/$listenPort",
             onListenPortSelected = { port ->
@@ -67,6 +74,7 @@ class DeviceSyncManager private constructor(context: Context) {
                     applicationContext,
                     hasTrustedPeers = true
                 )
+                DeviceSyncListenerService.startIfEnabled(applicationContext)
             }
         )
     }
@@ -98,6 +106,11 @@ class DeviceSyncManager private constructor(context: Context) {
     }
 
     @Synchronized
+    fun stopListening() {
+        node.stop()
+    }
+
+    @Synchronized
     fun syncSubscriptions(): DeviceSyncSummary {
         startNode()
         val peers = trustedPeers
@@ -106,30 +119,42 @@ class DeviceSyncManager private constructor(context: Context) {
         }
         val attempts = peers.map { peer ->
             var activePeer = peer
-            var result = runCatching {
-                node.syncSubscriptions(peer)
+            val retryDiagnostics = linkedMapOf<DeviceSyncLogCategory, String>()
+            val profileAttempt = runSyncStage(
+                activePeer,
+                DeviceSyncLogCategory.PROFILES,
+                retryDiagnostics
+            ) { candidate ->
+                node.syncProfiles(candidate)
             }
-            if (result.exceptionOrNull().isReachabilityFailure()) {
-                node.refreshPeerAddresses(peer)?.let { refreshedPeer ->
-                    activePeer = refreshedPeer
-                    result = runCatching {
-                        node.syncSubscriptions(refreshedPeer)
-                    }
+            activePeer = profileAttempt.first
+            val profile = profileAttempt.second
+            val subscription = if (profile.isSuccess) {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.SUBSCRIPTIONS,
+                    retryDiagnostics
+                ) { candidate ->
+                    node.syncSubscriptions(candidate)
                 }
+                activePeer = attempt.first
+                attempt.second
+            } else {
+                null
             }
-            result.fold(
-                onSuccess = {
-                    DeviceSyncAttempt(
-                        peer = activePeer,
-                        result = it
-                    )
-                },
-                onFailure = { error ->
-                    DeviceSyncAttempt(
-                        peer = activePeer,
-                        error = error.message ?: "Subscription synchronization failed"
-                    )
-                }
+            DeviceSyncAttempt(
+                peer = activePeer,
+                profileResult = profile.getOrNull(),
+                profileError = profile.exceptionOrNull().diagnosticMessage(),
+                result = subscription?.getOrNull(),
+                error = subscription?.exceptionOrNull().diagnosticMessage()
+                    ?: if (profile.isFailure) PROFILE_SYNC_REQUIRED else null,
+                playlistSkipped = true,
+                watchHistorySkipped = true,
+                searchHistorySkipped = true,
+                learningNotesSkipped = true,
+                structuredPreferenceSkipped = StructuredPreferenceCategory.entries.toSet(),
+                retryDiagnostics = retryDiagnostics
             )
         }
         return DeviceSyncSummary(attempts)
@@ -169,83 +194,163 @@ class DeviceSyncManager private constructor(context: Context) {
         }
         val attempts = peers.map { peer ->
             var activePeer = peer
-            var subscription = runCatching {
-                node.syncSubscriptions(peer, recordStatus = !background)
+            val retryDiagnostics = linkedMapOf<DeviceSyncLogCategory, String>()
+
+            val profileAttempt = runSyncStage(
+                activePeer,
+                DeviceSyncLogCategory.PROFILES,
+                retryDiagnostics
+            ) { candidate ->
+                node.syncProfiles(candidate, recordStatus = !background)
             }
-            if (subscription.exceptionOrNull().isReachabilityFailure()) {
-                node.refreshPeerAddresses(peer)?.let { refreshedPeer ->
-                    activePeer = refreshedPeer
-                    subscription = runCatching {
-                        node.syncSubscriptions(refreshedPeer, recordStatus = !background)
-                    }
+            activePeer = profileAttempt.first
+            val profile = profileAttempt.second
+
+            val subscriptionEnabled = subscriptionSyncEngine.isEnabled()
+            val subscription = if (profile.isSuccess && subscriptionEnabled) {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.SUBSCRIPTIONS,
+                    retryDiagnostics
+                ) { candidate ->
+                    node.syncSubscriptions(candidate, recordStatus = !background)
                 }
-            }
-            val canContinue = subscription.isSuccess ||
-                (!background && !subscription.exceptionOrNull().isReachabilityFailure())
-            val playlist = if (canContinue) {
-                runCatching {
-                    node.syncPlaylists(activePeer, recordStatus = !background)
-                }
+                activePeer = attempt.first
+                attempt.second
             } else {
                 null
             }
+
+            val canContinue = profile.isSuccess &&
+                (
+                    !subscriptionEnabled ||
+                        subscription?.isSuccess == true ||
+                        (
+                            !background &&
+                                subscription != null &&
+                                !DeviceSyncTransportRecovery.shouldRetryTransportFailure(
+                                    subscription.exceptionOrNull()
+                                )
+                            )
+                    )
+            val downstreamTransportError = when {
+                profile.isFailure -> PROFILE_SYNC_REQUIRED
+
+                subscriptionEnabled &&
+                    !canContinue &&
+                    DeviceSyncTransportRecovery.shouldRetryTransportFailure(
+                        subscription?.exceptionOrNull()
+                    ) -> PEER_LISTENER_UNAVAILABLE
+
+                else -> null
+            }
+
+            val playlistEnabled = playlistSyncEngine.isEnabled()
+            val playlist = if (canContinue && playlistEnabled) {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.PLAYLISTS,
+                    retryDiagnostics
+                ) { candidate ->
+                    node.syncPlaylists(candidate, recordStatus = !background)
+                }
+                activePeer = attempt.first
+                attempt.second
+            } else {
+                null
+            }
+
             val watchHistoryEnabled = historySyncEngine.isEnabled(
                 HistorySyncCategory.WATCH
             )
             val watchHistory = if (canContinue && watchHistoryEnabled) {
-                runCatching {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.WATCH_HISTORY,
+                    retryDiagnostics
+                ) { candidate ->
                     node.syncHistory(
-                        activePeer,
+                        candidate,
                         HistorySyncCategory.WATCH,
                         recordStatus = !background
                     )
                 }
+                activePeer = attempt.first
+                attempt.second
             } else {
                 null
             }
+
             val searchHistoryEnabled = historySyncEngine.isEnabled(
                 HistorySyncCategory.SEARCH
             )
             val searchHistory = if (canContinue && searchHistoryEnabled) {
-                runCatching {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.SEARCH_HISTORY,
+                    retryDiagnostics
+                ) { candidate ->
                     node.syncHistory(
-                        activePeer,
+                        candidate,
                         HistorySyncCategory.SEARCH,
                         recordStatus = !background
                     )
                 }
+                activePeer = attempt.first
+                attempt.second
             } else {
                 null
             }
+
             val learningNotesEnabled = historySyncEngine.isEnabled(
                 HistorySyncCategory.LEARNING_NOTES
             )
             val learningNotes = if (canContinue && learningNotesEnabled) {
-                runCatching {
+                val attempt = runSyncStage(
+                    activePeer,
+                    DeviceSyncLogCategory.LEARNING_NOTES,
+                    retryDiagnostics
+                ) { candidate ->
                     node.syncHistory(
-                        activePeer,
+                        candidate,
                         HistorySyncCategory.LEARNING_NOTES,
                         recordStatus = !background
                     )
                 }
+                activePeer = attempt.first
+                attempt.second
             } else {
                 null
             }
-            val structuredPreferences = if (canContinue) {
-                StructuredPreferenceCategory.entries.associateWith { category ->
-                    runCatching {
-                        node.syncStructuredPreferences(
+
+            val structuredPreferences =
+                linkedMapOf<StructuredPreferenceCategory, Result<StructuredPreferenceSyncResult>>()
+            val structuredPreferenceSkipped = StructuredPreferenceCategory.entries
+                .filterNot(structuredPreferenceSyncEngine::isEnabled)
+                .toSet()
+            if (canContinue) {
+                StructuredPreferenceCategory.entries
+                    .filter(structuredPreferenceSyncEngine::isEnabled)
+                    .forEach { category ->
+                        val attempt = runSyncStage(
                             activePeer,
-                            category,
-                            recordStatus = !background
-                        )
+                            category.toLogCategory(),
+                            retryDiagnostics
+                        ) { candidate ->
+                            node.syncStructuredPreferences(
+                                candidate,
+                                category,
+                                recordStatus = !background
+                            )
+                        }
+                        activePeer = attempt.first
+                        structuredPreferences[category] = attempt.second
                     }
-                }
-            } else {
-                emptyMap()
             }
+
             val errors = listOfNotNull(
-                subscription.exceptionOrNull()?.message,
+                profile.exceptionOrNull()?.message,
+                subscription?.exceptionOrNull()?.message,
                 playlist?.exceptionOrNull()?.message,
                 watchHistory?.exceptionOrNull()?.message,
                 searchHistory?.exceptionOrNull()?.message,
@@ -262,25 +367,64 @@ class DeviceSyncManager private constructor(context: Context) {
             }
             DeviceSyncAttempt(
                 peer = activePeer,
-                result = subscription.getOrNull(),
-                error = subscription.exceptionOrNull().diagnosticMessage(),
+                profileResult = profile.getOrNull(),
+                profileError = profile.exceptionOrNull().diagnosticMessage(),
+                result = subscription?.getOrNull(),
+                error = if (subscriptionEnabled) {
+                    subscription?.exceptionOrNull().diagnosticMessage()
+                        ?: if (profile.isFailure) PROFILE_SYNC_REQUIRED else null
+                } else {
+                    null
+                },
+                subscriptionSkipped = !subscriptionEnabled,
                 playlistResult = playlist?.getOrNull(),
-                playlistError = playlist?.exceptionOrNull().diagnosticMessage(),
+                playlistError = if (playlistEnabled) {
+                    playlist?.exceptionOrNull().diagnosticMessage()
+                        ?: downstreamTransportError
+                } else {
+                    null
+                },
+                playlistSkipped = !playlistEnabled,
                 watchHistoryResult = watchHistory?.getOrNull(),
-                watchHistoryError = watchHistory?.exceptionOrNull().diagnosticMessage(),
+                watchHistoryError = if (watchHistoryEnabled) {
+                    watchHistory?.exceptionOrNull().diagnosticMessage()
+                        ?: downstreamTransportError
+                } else {
+                    null
+                },
                 watchHistorySkipped = !watchHistoryEnabled,
                 searchHistoryResult = searchHistory?.getOrNull(),
-                searchHistoryError = searchHistory?.exceptionOrNull().diagnosticMessage(),
+                searchHistoryError = if (searchHistoryEnabled) {
+                    searchHistory?.exceptionOrNull().diagnosticMessage()
+                        ?: downstreamTransportError
+                } else {
+                    null
+                },
                 searchHistorySkipped = !searchHistoryEnabled,
                 learningNotesResult = learningNotes?.getOrNull(),
-                learningNotesError = learningNotes?.exceptionOrNull().diagnosticMessage(),
+                learningNotesError = if (learningNotesEnabled) {
+                    learningNotes?.exceptionOrNull().diagnosticMessage()
+                        ?: downstreamTransportError
+                } else {
+                    null
+                },
                 learningNotesSkipped = !learningNotesEnabled,
                 structuredPreferenceResults = structuredPreferences.mapValues {
                     it.value.getOrNull()
                 },
-                structuredPreferenceErrors = structuredPreferences.mapValues {
-                    it.value.exceptionOrNull().diagnosticMessage()
-                }.filterValues { it != null }
+                structuredPreferenceErrors = if (canContinue) {
+                    structuredPreferences.mapValues {
+                        it.value.exceptionOrNull().diagnosticMessage()
+                    }.filterValues { it != null }
+                } else if (downstreamTransportError != null) {
+                    StructuredPreferenceCategory.entries
+                        .filter(structuredPreferenceSyncEngine::isEnabled)
+                        .associateWith { downstreamTransportError }
+                } else {
+                    emptyMap()
+                },
+                structuredPreferenceSkipped = structuredPreferenceSkipped,
+                retryDiagnostics = retryDiagnostics
             )
         }
         return DeviceSyncSummary(attempts)
@@ -299,11 +443,45 @@ class DeviceSyncManager private constructor(context: Context) {
             .take(MAX_LOG_ERROR_LENGTH)
     }
 
-    private fun Throwable?.isReachabilityFailure(): Boolean {
-        return this != null && generateSequence(this) { it.cause }
-            .take(MAX_LOG_CAUSE_DEPTH)
-            .mapNotNull(Throwable::message)
-            .any { it.startsWith(REACHABILITY_ERROR_PREFIX) }
+    private fun <T> runSyncStage(
+        peer: TrustedPeer,
+        category: DeviceSyncLogCategory,
+        retryDiagnostics: MutableMap<DeviceSyncLogCategory, String>,
+        operation: (TrustedPeer) -> T
+    ): Pair<TrustedPeer, Result<T>> {
+        val attempt = DeviceSyncTransportRecovery.run(
+            peer = peer,
+            refreshPeer = node::refreshPeerAddresses,
+            operation = operation
+        )
+        attempt.retryDiagnostic?.let { diagnostic ->
+            retryDiagnostics[category] = diagnostic
+        }
+        return attempt.peer to attempt.result
+    }
+
+    private fun StructuredPreferenceCategory.toLogCategory(): DeviceSyncLogCategory {
+        return when (this) {
+            StructuredPreferenceCategory.LESSON_DIFFICULTY ->
+                DeviceSyncLogCategory.LESSON_DIFFICULTY
+
+            StructuredPreferenceCategory.FEED_GROUPS -> DeviceSyncLogCategory.FEED_GROUPS
+
+            StructuredPreferenceCategory.HOME_TABS -> DeviceSyncLogCategory.HOME_TABS
+
+            StructuredPreferenceCategory.CHANNEL_PROFILES ->
+                DeviceSyncLogCategory.CHANNEL_PROFILES
+
+            StructuredPreferenceCategory.FILTERS -> DeviceSyncLogCategory.FILTERS
+
+            StructuredPreferenceCategory.CONTENT_BLOCKING ->
+                DeviceSyncLogCategory.CONTENT_BLOCKING
+
+            StructuredPreferenceCategory.SETTINGS -> DeviceSyncLogCategory.SETTINGS
+
+            StructuredPreferenceCategory.COMPLETED_DOWNLOADS ->
+                DeviceSyncLogCategory.COMPLETED_DOWNLOADS
+        }
     }
 
     @Synchronized
@@ -313,7 +491,9 @@ class DeviceSyncManager private constructor(context: Context) {
         playlistSyncEngine.clearPeerKnowledge()
         historySyncEngine.clearPeerKnowledge()
         structuredPreferenceSyncEngine.clearPeerKnowledge()
+        node.stop()
         DeviceSyncBackgroundScheduler.cancel(applicationContext)
+        DeviceSyncListenerService.stop(applicationContext)
     }
 
     @Synchronized
@@ -326,6 +506,9 @@ class DeviceSyncManager private constructor(context: Context) {
             HistorySyncCategory.WATCH -> defaultPreferences.getBoolean(
                 applicationContext.getString(R.string.enable_watch_history_key),
                 false
+            ) && defaultPreferences.getBoolean(
+                applicationContext.getString(R.string.device_sync_watch_history_key),
+                true
             )
 
             HistorySyncCategory.SEARCH -> defaultPreferences.getBoolean(
@@ -339,6 +522,47 @@ class DeviceSyncManager private constructor(context: Context) {
             HistorySyncCategory.LEARNING_NOTES ->
                 org.schabi.newpipe.learning.LearningMode.isNotesSyncEnabled(applicationContext)
         }
+    }
+
+    private fun isSubscriptionSyncEnabled(): Boolean {
+        return syncPreference(R.string.device_sync_subscriptions_key, true)
+    }
+
+    private fun isPlaylistSyncEnabled(): Boolean {
+        return syncPreference(R.string.device_sync_playlists_key, true)
+    }
+
+    private fun isStructuredPreferenceCategoryEnabled(
+        category: StructuredPreferenceCategory
+    ): Boolean {
+        if (category == StructuredPreferenceCategory.LESSON_DIFFICULTY) {
+            return org.schabi.newpipe.learning.LearningDifficulty.isSyncEnabled(applicationContext)
+        }
+        val key = when (category) {
+            StructuredPreferenceCategory.LESSON_DIFFICULTY -> error("Handled above")
+
+            StructuredPreferenceCategory.FEED_GROUPS -> R.string.device_sync_feed_groups_key
+
+            StructuredPreferenceCategory.HOME_TABS -> R.string.device_sync_home_tabs_key
+
+            StructuredPreferenceCategory.CHANNEL_PROFILES ->
+                R.string.device_sync_channel_profiles_key
+
+            StructuredPreferenceCategory.FILTERS -> R.string.device_sync_filters_key
+
+            StructuredPreferenceCategory.CONTENT_BLOCKING ->
+                R.string.device_sync_content_blocking_key
+
+            StructuredPreferenceCategory.SETTINGS -> R.string.device_sync_settings_key
+
+            StructuredPreferenceCategory.COMPLETED_DOWNLOADS ->
+                R.string.device_sync_completed_downloads_key
+        }
+        return syncPreference(key, true)
+    }
+
+    private fun syncPreference(key: Int, defaultValue: Boolean): Boolean {
+        return defaultPreferences.getBoolean(applicationContext.getString(key), defaultValue)
     }
 
     private fun startNode() {
@@ -361,7 +585,10 @@ class DeviceSyncManager private constructor(context: Context) {
         private const val MAX_LOG_CAUSE_DEPTH = 4
         private const val MAX_LOG_ERROR_LENGTH = 2_048
         private const val LOG_CAUSE_SEPARATOR = " → "
-        private const val REACHABILITY_ERROR_PREFIX = "Could not reach "
+        private const val PEER_LISTENER_UNAVAILABLE =
+            "Skipped because the trusted device listener is unavailable after discovery and retry"
+        private const val PROFILE_SYNC_REQUIRED =
+            "Skipped because profile synchronization did not complete"
 
         @Volatile
         private var instance: DeviceSyncManager? = null

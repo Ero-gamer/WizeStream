@@ -123,6 +123,11 @@ public final class PlayerService extends MediaLibraryService {
                 .setId("WizeStreamPlayer")
                 .build();
 
+        // Internal playback uses our local binder and does not pass through Media3's
+        // controller-binding path. Register explicitly so Media3 creates its notification
+        // controller and exports authorized custom actions to Android's platform session.
+        addSession(mediaSession);
+
         // Note: you might be tempted to create the player instance and call startForeground here,
         // but be aware that the Android system might start the service just to perform media
         // queries. In those cases creating a player instance is a waste of resources, and calling
@@ -133,7 +138,20 @@ public final class PlayerService extends MediaLibraryService {
     }
 
     @Override
-    public int onStartCommand(final Intent intent, final int flags, final int startId) {
+    public int onStartCommand(@Nullable final Intent intent, final int flags, final int startId) {
+        if (intent == null) {
+            Log.w(TAG, "onStartCommand() called with a null intent");
+
+            // Android may recreate a previously started service with a null intent. There is
+            // nothing to handle in that case. If no player is active, clear only this started
+            // service instance; bound media-browser clients may keep the service alive.
+            if (PlayerServiceStartPolicy
+                    .shouldStopStartedServiceOnNullIntent(player != null)) {
+                stopSelf(startId);
+            }
+            return START_NOT_STICKY;
+        }
+
         if (DEBUG) {
             Log.d(TAG, "onStartCommand() called with: intent = [" + intent
                     + "], extras = [" + BundleKt.toDebugString(intent.getExtras())

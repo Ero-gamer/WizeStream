@@ -1,6 +1,6 @@
 # WizeStream Privacy Policy
 
-Last updated: August 20, 2026
+Last updated: September 21, 2026
 
 WizeStream is an independently maintained, open-source Android streaming application. It does not require a WizeStream account and does not include advertising, analytics, or tracking SDKs.
 
@@ -10,11 +10,30 @@ WizeStream connects directly to the media services you choose to use. Those serv
 
 When update checks are enabled or manually requested, WizeStream contacts the GitHub Releases API for `wizdom13/WizeStream`. The app does not add a WizeStream account identifier or advertising identifier to those requests.
 
+AiSList content filtering is optional and disabled by default. When enabled or manually refreshed,
+WizeStream downloads the public high-confidence blocklist and medium-confidence warnlist directly
+from the `Override92/AiSList` project on GitHub and caches them in app-private storage. The update
+request does not include the video or channel being viewed, a WizeStream account identifier, or an
+advertising identifier. Matching against the downloaded channel handles and IDs happens entirely
+on-device.
+
 DeArrow is optional and disabled by default. When enabled for YouTube, WizeStream sends the video's
 public YouTube identifier to the community-operated DeArrow endpoints at `sponsor.ajay.app` and
 `dearrow-thumb.ajay.app` to request accepted replacement titles and thumbnail frames. DeArrow
 requests do not include a WizeStream account identifier or advertising identifier. The service and
 your network provider receive ordinary connection information such as your IP address.
+
+## On-device comment translation
+
+On Android 12 and newer, WizeStream can translate a comment when you explicitly select
+**Translate**. WizeStream uses Android's on-device translation framework only when the requested
+language pair is already present and ready on the device. WizeStream does not request a translation
+model download and does not provide a cloud translation fallback.
+
+Language detection is handled by Android's text-classification service. Depending on the device,
+that service can be provided by Android or the device manufacturer and can run in a separate local
+process. WizeStream does not send comment text to its own server or to a remote translation API,
+and translated comment text is not persisted by WizeStream.
 
 ## Device synchronization
 

@@ -7,20 +7,140 @@ package org.schabi.newpipe;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.schabi.newpipe.error.ReCaptchaActivity;
+import org.schabi.newpipe.extractor.downloader.CancellableCall;
+import org.schabi.newpipe.extractor.downloader.Downloader;
+import org.schabi.newpipe.extractor.downloader.Response;
+import org.schabi.newpipe.extractor.exceptions.ExtractionException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
+import okhttp3.Interceptor;
+import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
+import okhttp3.ResponseBody;
+import okhttp3.Request;
 import okhttp3.RequestBody;
 import okio.Buffer;
 
 public class DownloaderImplTest {
+    @Test
+    public void asyncSuccessIsFinishedOnlyAfterResponseProcessing() throws Exception {
+        assertAsyncCompletion(false);
+    }
+
+    @Test
+    public void asyncFailureIsFinishedOnlyAfterErrorProcessing() throws Exception {
+        assertAsyncCompletion(true);
+    }
+
+    private void assertAsyncCompletion(final boolean failure) throws Exception {
+        final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        final AtomicReference<String> parsed = new AtomicReference<>();
+        final DownloaderImpl downloader = DownloaderImpl.init(new OkHttpClient.Builder()
+                .addInterceptor(chain -> {
+                    if (failure) {
+                        throw new IOException("fixture failure");
+                    }
+                    return new okhttp3.Response.Builder().request(chain.request())
+                            .protocol(Protocol.HTTP_1_1).code(200).message("fixture")
+                            .body(ResponseBody.create("fixture body", (okhttp3.MediaType) null))
+                            .build();
+                }));
+        final Downloader.AsyncCallback callback = new Downloader.AsyncCallback() {
+            @Override
+            public void onSuccess(final Response response) throws ExtractionException {
+                finishProcessing(response.responseBody());
+            }
+
+            @Override
+            public void onError(final Exception error) {
+                finishProcessing("fixture error");
+            }
+
+            private void finishProcessing(final String result) {
+                entered.countDown();
+                try {
+                    if (!release.await(5, TimeUnit.SECONDS)) {
+                        throw new AssertionError("Callback was not released");
+                    }
+                    parsed.set(result);
+                } catch (final InterruptedException error) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(error);
+                }
+            }
+        };
+        final CancellableCall call = downloader.getAsync("https://example.com/fixture", callback);
+        try {
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertFalse(call.isFinished());
+            assertFalse(call.awaitFinished(0, TimeUnit.NANOSECONDS));
+        } finally {
+            release.countDown();
+        }
+        assertTrue(call.awaitFinished(5, TimeUnit.SECONDS));
+        assertEquals(failure ? "fixture error" : "fixture body", parsed.get());
+        downloader.getClient().dispatcher().executorService().shutdown();
+    }
+
+    @Test
+    public void storedCookiesAreRestrictedToSecureYoutubeHosts() {
+        final DownloaderImpl downloader = DownloaderImpl.init(null);
+        downloader.setCookie(ReCaptchaActivity.RECAPTCHA_COOKIES_KEY, "VISITOR_INFO1_LIVE=test");
+        downloader.setCookie(DownloaderImpl.YOUTUBE_RESTRICTED_MODE_COOKIE_KEY, "PREF=f2=8000000");
+        for (final String url : new String[]{"https://youtube.com/watch?v=test",
+                "https://www.youtube.com/", "https://music.youtube.com/"}) {
+            assertEquals("PREF=f2=8000000; VISITOR_INFO1_LIVE=test", downloader.getCookies(url));
+        }
+        for (final String url : new String[]{"https://youtube.com.example.org/",
+                "https://notyoutube.com/", "https://example.org/youtube.com",
+                "https://youtube.com@example.org/", "http://www.youtube.com/",
+                "https://www.bilibili.com/", "not a URL"}) {
+            assertEquals("", downloader.getCookies(url));
+        }
+    }
+
+    @Test
+    public void eachNetworkHopSelectsCookiesForItsOwnDestination() throws IOException {
+        final DownloaderImpl downloader = DownloaderImpl.init(null);
+        downloader.setCookie(ReCaptchaActivity.RECAPTCHA_COOKIES_KEY, "VISITOR_INFO1_LIVE=test");
+        assertEquals("VISITOR_INFO1_LIVE=test", interceptedCookie(downloader,
+                new Request.Builder().url("https://www.youtube.com/").build()));
+        assertNull(interceptedCookie(downloader,
+                new Request.Builder().url("https://example.org/").build()));
+        assertEquals("service=value", interceptedCookie(downloader,
+                new Request.Builder().url("https://www.bilibili.com/")
+                        .header("Cookie", "service=value").build()));
+    }
+
+    private String interceptedCookie(final DownloaderImpl downloader, final Request request)
+            throws IOException {
+        final Interceptor.Chain chain = mock(Interceptor.Chain.class);
+        when(chain.request()).thenReturn(request);
+        downloader.getClient().networkInterceptors().get(0).intercept(chain);
+        final ArgumentCaptor<Request> captured = ArgumentCaptor.forClass(Request.class);
+        verify(chain).proceed(captured.capture());
+        return captured.getValue().header("Cookie");
+    }
+
     @Test
     public void parsedUrlsAreReusedAndBounded() {
         final DownloaderImpl downloader = DownloaderImpl.init(null);

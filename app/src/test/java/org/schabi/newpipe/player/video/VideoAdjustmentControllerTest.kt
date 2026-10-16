@@ -10,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -42,23 +43,58 @@ class VideoAdjustmentControllerTest {
     fun defaultPlaybackNeverInstallsAnEffectsPipeline() {
         controller.attach(engine)
         assertFalse(controller.pipelineActive)
+        assertFalse(controller.effectsPipelinePrepared)
         verify(engine, never()).setVideoEffects(anyList())
     }
 
     @Test
-    fun enablingAndDisablingRebuildsButSliderChangesStayOnTheSameEngine() {
+    fun firstEnableRebuildsThenOnOffCyclesReuseThePreparedEngine() {
         controller.attach(engine)
         controller.update(VideoAdjustmentState(enabled = true))
         assertEquals(1, restarts)
         assertTrue(controller.pipelineActive)
+        assertTrue(controller.effectsPipelinePrepared)
+
         val activeEngine = engine
         controller.update(controller.state.copy(brightness = 30, saturation = 0))
         assertEquals(1, restarts)
         assertTrue(activeEngine === engine)
-        controller.update(controller.state.copy(enabled = false))
-        assertEquals(2, restarts)
+
+        clearInvocations(activeEngine)
+        repeat(10) {
+            controller.update(controller.state.copy(enabled = false))
+            assertEquals(1, restarts)
+            assertFalse(controller.pipelineActive)
+            assertTrue(controller.effectsPipelinePrepared)
+            assertTrue(activeEngine === engine)
+            verify(activeEngine).setVideoEffects(emptyList())
+
+            clearInvocations(activeEngine)
+            controller.update(controller.state.copy(enabled = true))
+            assertEquals(1, restarts)
+            assertTrue(controller.pipelineActive)
+            assertTrue(controller.effectsPipelinePrepared)
+            assertTrue(activeEngine === engine)
+            verify(activeEngine).setVideoEffects(listOf(effect))
+            clearInvocations(activeEngine)
+        }
+    }
+
+    @Test
+    fun disabledEditsArePreparedWithoutRestartingThePlayer() {
+        controller.attach(engine)
+        controller.update(VideoAdjustmentState(enabled = false, brightness = 45, contrast = -20, saturation = 135))
+        assertEquals(0, restarts)
         assertFalse(controller.pipelineActive)
         verify(engine, never()).setVideoEffects(anyList())
+
+        controller.update(controller.state.copy(enabled = true))
+        assertEquals(1, restarts)
+        assertTrue(controller.pipelineActive)
+        assertTrue(controller.effectsPipelinePrepared)
+        assertEquals(45, controller.state.brightness)
+        assertEquals(-20, controller.state.contrast)
+        assertEquals(135, controller.state.saturation)
     }
 
     @Test
@@ -102,11 +138,40 @@ class VideoAdjustmentControllerTest {
         assertTrue(controller.recover(error))
         assertFalse(controller.recover(error))
         assertFalse(controller.state.enabled)
+        assertFalse(controller.effectsPipelinePrepared)
         assertTrue(controller.failed)
         assertEquals(150, controller.state.saturation)
         assertFalse(saved.last().enabled)
         assertEquals(2, restarts)
         assertEquals(1, failures)
+        verify(engine, never()).setVideoEffects(anyList())
+    }
+
+    @Test
+    fun synchronousInstallationFailureFallsBackWithoutReenteringInitialization() {
+        val failingEngine = mock(ExoPlayer::class.java)
+        doThrow(IllegalStateException("GL unavailable")).`when`(failingEngine).setVideoEffects(anyList())
+        controller.update(VideoAdjustmentState(enabled = true, remember = true))
+        controller.attach(failingEngine)
+        assertFalse(controller.state.enabled)
+        assertFalse(controller.pipelineActive)
+        assertTrue(controller.failed)
+        assertFalse(saved.last().enabled)
+        assertEquals(0, restarts)
+        assertEquals(1, failures)
+    }
+
+    @Test
+    fun synchronousSliderFailureRestartsOnceWithoutEffects() {
+        controller.attach(engine)
+        controller.update(VideoAdjustmentState(enabled = true))
+        doThrow(IllegalStateException("GL unavailable")).`when`(engine).setVideoEffects(anyList())
+        controller.update(controller.state.copy(contrast = 50))
+        assertEquals(2, restarts)
+        assertEquals(1, failures)
+        assertFalse(controller.state.enabled)
+        assertFalse(controller.pipelineActive)
+        assertEquals(50, controller.state.contrast)
         verify(engine, never()).setVideoEffects(anyList())
     }
 
@@ -127,6 +192,7 @@ class VideoAdjustmentControllerTest {
         val replacement = mock(ExoPlayer::class.java)
         controller.attach(replacement)
         assertEquals(VideoAdjustmentState(true, 35, -10, 175), controller.state)
+        assertTrue(controller.effectsPipelinePrepared)
         verify(replacement).setVideoEffects(listOf(effect))
     }
 

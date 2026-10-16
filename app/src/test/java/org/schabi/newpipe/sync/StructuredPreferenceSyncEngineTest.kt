@@ -13,6 +13,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StructuredPreferenceSyncEngineTest {
+
+    @Test
+    fun `disabled structured category rejects outgoing and incoming requests`() {
+        val localStore = newStore()
+        val remoteStore = newStore()
+        val disabledCategory = StructuredPreferenceCategory.FILTERS
+        val disabled = StructuredPreferenceSyncEngine(localStore) {
+            it != disabledCategory
+        }
+
+        assertFalse(disabled.isEnabled(disabledCategory))
+        val outgoingRejected = runCatching {
+            disabled.createRequest(remoteStore.localPeerId, disabledCategory)
+        }.exceptionOrNull()
+        assertTrue(outgoingRejected is StructuredPreferenceSyncException)
+
+        val response = disabled.handleRequest(
+            remoteStore.localPeerId,
+            StructuredPreferenceSyncRequest(
+                category = disabledCategory,
+                knownRevisions = emptyMap(),
+                changes = emptyList(),
+                hasMore = false
+            )
+        )
+        assertFalse(response.accepted)
+    }
+
     @Test
     fun `feed group membership edits merge and deletion tombstones converge`() {
         val phoneStore = newStore()
@@ -110,15 +138,80 @@ class StructuredPreferenceSyncEngineTest {
     }
 
     @Test
+    fun `blocked content entries merge independently and deletion tombstones converge`() {
+        val phoneStore = newStore()
+        val tabletStore = newStore()
+        val phone = StructuredPreferenceSyncEngine(phoneStore)
+        val tablet = StructuredPreferenceSyncEngine(tabletStore)
+        val channel = SyncedContentBlockEntry(
+            ContentBlockEntryKind.CHANNEL,
+            "https://example.com/channel/blocked",
+            "Blocked channel"
+        )
+        val video = SyncedContentBlockEntry(
+            ContentBlockEntryKind.VIDEO,
+            "https://example.com/watch?v=blocked",
+            "Blocked video"
+        )
+        val keyword = SyncedContentBlockEntry(
+            ContentBlockEntryKind.KEYWORD,
+            "spoiler",
+            "Spoiler"
+        )
+        phoneStore.upsertContentBlockEntry(channel)
+        tabletStore.upsertContentBlockEntry(video)
+        tabletStore.upsertContentBlockEntry(keyword)
+
+        synchronize(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertEquals(
+            setOf(
+                ContentBlockEntryKind.CHANNEL to channel.key,
+                ContentBlockEntryKind.VIDEO to video.key,
+                ContentBlockEntryKind.KEYWORD to keyword.key
+            ),
+            phoneStore.contentBlockKeys()
+        )
+        assertEquals(phoneStore.contentBlockKeys(), tabletStore.contentBlockKeys())
+
+        phoneStore.delete(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            StructuredPreferenceRecordId.contentBlockEntry(channel.kind, channel.key)
+        )
+        synchronize(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertEquals(
+            setOf(
+                ContentBlockEntryKind.VIDEO to video.key,
+                ContentBlockEntryKind.KEYWORD to keyword.key
+            ),
+            phoneStore.contentBlockKeys()
+        )
+        assertEquals(phoneStore.contentBlockKeys(), tabletStore.contentBlockKeys())
+    }
+
+    @Test
     fun `home tab ordering uses the latest deterministic version`() {
         val phoneStore = newStore()
         val tabletStore = newStore()
         val phone = StructuredPreferenceSyncEngine(phoneStore)
         val tablet = StructuredPreferenceSyncEngine(tabletStore)
-        val feed = SyncedHomeTab(SyncedHomeTabType.FEED)
+        val learning = SyncedHomeTab(SyncedHomeTabType.LEARNING)
         val subscriptions = SyncedHomeTab(SyncedHomeTabType.SUBSCRIPTIONS)
-        phoneStore.upsertHomeTabs(listOf(feed, subscriptions))
-        tabletStore.upsertHomeTabs(listOf(subscriptions, feed))
+        phoneStore.upsertHomeTabs(listOf(learning, subscriptions))
+        tabletStore.upsertHomeTabs(listOf(subscriptions, learning))
 
         synchronize(
             StructuredPreferenceCategory.HOME_TABS,
@@ -383,6 +476,26 @@ class StructuredPreferenceSyncEngineTest {
             recordType = StructuredPreferenceRecordType.FILTER_SET,
             record = SyncedStructuredPreferenceRecord(filterSet = filter)
         )
+    }
+
+    private fun TestStructuredPreferenceSyncStore.upsertContentBlockEntry(
+        entry: SyncedContentBlockEntry
+    ) {
+        upsert(
+            category = StructuredPreferenceCategory.CONTENT_BLOCKING,
+            recordId = StructuredPreferenceRecordId.contentBlockEntry(entry.kind, entry.key),
+            recordType = StructuredPreferenceRecordType.CONTENT_BLOCK_ENTRY,
+            record = SyncedStructuredPreferenceRecord(contentBlockEntry = entry)
+        )
+    }
+
+    private fun TestStructuredPreferenceSyncStore.contentBlockKeys(): Set<Pair<ContentBlockEntryKind, String>> {
+        return liveRecords(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            StructuredPreferenceRecordType.CONTENT_BLOCK_ENTRY
+        ).mapNotNull { record ->
+            record.contentBlockEntry?.let { it.kind to it.key }
+        }.toSet()
     }
 
     private fun TestStructuredPreferenceSyncStore.upsertSetting(

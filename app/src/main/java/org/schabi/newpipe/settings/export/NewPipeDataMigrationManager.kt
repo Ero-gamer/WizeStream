@@ -8,6 +8,8 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import org.schabi.newpipe.NewPipeDatabase
+import org.schabi.newpipe.database.feed.model.FeedGroupEntity
+import org.schabi.newpipe.database.feed.model.FeedGroupSubscriptionEntity
 import org.schabi.newpipe.database.playlist.model.PlaylistEntity
 import org.schabi.newpipe.database.playlist.model.PlaylistStreamEntity
 import org.schabi.newpipe.database.stream.model.StreamEntity
@@ -15,6 +17,8 @@ import org.schabi.newpipe.database.stream.model.StreamStateEntity
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.stream.StreamType
+import org.schabi.newpipe.local.subscription.FeedGroupIcon
+import org.schabi.newpipe.profiles.ProfileManager
 
 class NewPipeDataMigrationManager(private val context: Context) {
     enum class SourceApp {
@@ -30,14 +34,15 @@ class NewPipeDataMigrationManager(private val context: Context) {
         val subscriptions: Int,
         val compatibleSettings: Int,
         val sponsorBlockSettings: Int,
-        val sourceApp: SourceApp
+        val sourceApp: SourceApp,
+        val channelGroups: Int = 0
     ) {
         val hasHistory: Boolean
             get() = historyItems > 0 || progressItems > 0
         val hasPlaylists: Boolean
             get() = playlists > 0
         val hasSubscriptions: Boolean
-            get() = subscriptions > 0
+            get() = subscriptions > 0 || channelGroups > 0
         val hasCompatibleSettings: Boolean
             get() = compatibleSettings > 0
         val hasSponsorBlockSettings: Boolean
@@ -63,7 +68,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
         val subscriptions: Int,
         val compatibleSettings: Int,
         val sponsorBlockSettings: Int,
-        val skippedItems: Int
+        val skippedItems: Int,
+        val channelGroups: Int = 0
     )
 
     class UnsupportedSourceException(message: String) : Exception(message)
@@ -92,14 +98,17 @@ class NewPipeDataMigrationManager(private val context: Context) {
             },
             compatibleSettings = compatibleSettings.size,
             sponsorBlockSettings = sponsorBlockSettings.size,
-            sourceApp = if (schema.isPipePipe) SourceApp.PIPEPIPE else SourceApp.NEWPIPE
+            sourceApp = if (schema.isPipePipe) SourceApp.PIPEPIPE else SourceApp.NEWPIPE,
+            channelGroups = if (schema.hasGroups) source.countRows(GROUP_TABLE) else 0
         )
     }
 
+    @JvmOverloads
     fun importData(
         databasePath: Path,
         selection: Selection,
-        sourcePreferences: Map<String, *> = emptyMap<String, Any>()
+        sourcePreferences: Map<String, *> = emptyMap<String, Any>(),
+        targetProfileId: String = ProfileManager.DEFAULT_PROFILE_ID
     ): Result = openSource(databasePath).use { source ->
         val schema = inspectSchema(source)
         val streams = if (selection.importHistory || selection.importPlaylists) {
@@ -143,6 +152,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
                 var playlists = 0
                 var playlistItems = 0
                 var subscriptions = 0
+                var channelGroups = 0
+                val subscriptionIds = mutableMapOf<Long, Long>()
                 var skippedItems = 0
 
                 if (selection.importSubscriptions && schema.hasSubscriptions) {
@@ -164,12 +175,69 @@ class NewPipeDataMigrationManager(private val context: Context) {
                                 name = cursor.string("name")?.trim().orEmpty().ifEmpty { url },
                                 avatarUrl = cursor.string("avatar_url"),
                                 subscriberCount = cursor.long("subscriber_count"),
-                                description = cursor.string("description")
+                                description = cursor.string("description"),
+                                profileId = targetProfileId
                             )
-                            if (target.subscriptionDAO().insertIgnore(entity) != -1L) {
+                            val insertedId = target.subscriptionDAO().insertIgnore(entity)
+                            val targetId = if (insertedId != -1L) {
                                 subscriptions++
+                                insertedId
                             } else {
                                 skippedItems++
+                                target.subscriptionDAO().getSubscriptionDirectForProfile(
+                                    targetProfileId,
+                                    serviceId,
+                                    url
+                                )?.uid
+                            }
+                            val sourceId = cursor.long("uid")
+                            if (sourceId != null && targetId != null) subscriptionIds[sourceId] = targetId
+                        }
+                    }
+                }
+
+                if (selection.importSubscriptions && schema.hasGroups) {
+                    val groupDao = target.feedGroupDAO()
+                    val existingGroups = groupDao
+                        .getAllDirectForProfile(targetProfileId)
+                        .toMutableList()
+                    val groupIds = mutableMapOf<Long, Long>()
+                    source.rawQuery("SELECT * FROM $GROUP_TABLE ORDER BY sort_order, uid", null).use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val sourceId = cursor.long("uid") ?: continue
+                            val name = cursor.string("name")?.trim().orEmpty()
+                            if (name.isEmpty()) {
+                                skippedItems++
+                                continue
+                            }
+                            val iconId = cursor.long("icon_id")?.toInt()
+                            val icon = FeedGroupIcon.entries.firstOrNull { it.id == iconId } ?: FeedGroupIcon.ALL
+                            val existing = existingGroups.firstOrNull { it.name == name && it.icon == icon }
+                            val targetId = existing?.uid ?: run {
+                                val group = FeedGroupEntity(
+                                    uid = 0,
+                                    name = name,
+                                    icon = icon,
+                                    profileId = targetProfileId
+                                )
+                                val id = groupDao.insert(group)
+                                existingGroups.add(group.copy(uid = id))
+                                channelGroups++
+                                id
+                            }
+                            groupIds[sourceId] = targetId
+                        }
+                    }
+                    if (schema.hasGroupMemberships) {
+                        source.rawQuery("SELECT group_id, subscription_id FROM $GROUP_JOIN_TABLE", null).use { cursor ->
+                            while (cursor.moveToNext()) {
+                                val groupId = groupIds[cursor.getLong(0)]
+                                val subscriptionId = subscriptionIds[cursor.getLong(1)]
+                                if (groupId == null || subscriptionId == null) {
+                                    skippedItems++
+                                } else {
+                                    groupDao.insertSubscriptionsToGroup(listOf(FeedGroupSubscriptionEntity(groupId, subscriptionId)))
+                                }
                             }
                         }
                     }
@@ -191,13 +259,25 @@ class NewPipeDataMigrationManager(private val context: Context) {
                             val repeatCount = cursor.getLong(2).coerceAtLeast(0)
                             writable.execSQL(
                                 "INSERT OR IGNORE INTO $HISTORY_TABLE " +
-                                    "(stream_id, access_date, repeat_count) VALUES (?, ?, ?)",
-                                arrayOf(targetId, accessDate, repeatCount)
+                                    "(stream_id, access_date, repeat_count, profile_id) " +
+                                    "VALUES (?, ?, ?, ?)",
+                                arrayOf<Any>(
+                                    targetId,
+                                    accessDate,
+                                    repeatCount,
+                                    targetProfileId
+                                )
                             )
                             writable.execSQL(
                                 "UPDATE $HISTORY_TABLE SET repeat_count = " +
-                                    "MAX(repeat_count, ?) WHERE stream_id = ? AND access_date = ?",
-                                arrayOf(repeatCount, targetId, accessDate)
+                                    "MAX(repeat_count, ?) WHERE profile_id = ? " +
+                                    "AND stream_id = ? AND access_date = ?",
+                                arrayOf<Any>(
+                                    repeatCount,
+                                    targetProfileId,
+                                    targetId,
+                                    accessDate
+                                )
                             )
                             historyItems++
                         }
@@ -205,7 +285,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
                 }
 
                 if (selection.importHistory && schema.hasProgress) {
-                    val existingStates = target.streamStateDAO().getAllDirect()
+                    val existingStates = target.streamStateDAO()
+                        .getAllDirectForProfile(targetProfileId)
                         .associateBy { it.streamUid }
                     source.rawQuery(
                         "SELECT stream_id, progress_time FROM $STATE_TABLE",
@@ -221,7 +302,7 @@ class NewPipeDataMigrationManager(private val context: Context) {
                             val currentProgress = existingStates[targetId]?.progressMillis ?: -1
                             if (progress > currentProgress) {
                                 target.streamStateDAO().upsert(
-                                    StreamStateEntity(targetId, progress)
+                                    StreamStateEntity(targetId, progress, targetProfileId)
                                 )
                                 progressItems++
                             }
@@ -232,9 +313,10 @@ class NewPipeDataMigrationManager(private val context: Context) {
                 if (selection.importPlaylists && schema.hasPlaylists) {
                     val playlistDao = target.playlistDAO()
                     val playlistStreamDao = target.playlistStreamDAO()
-                    val usedNames = playlistDao.getAllDirect()
+                    val existingPlaylists = playlistDao.getAllDirectForProfile(targetProfileId)
+                    val usedNames = existingPlaylists
                         .mapNotNullTo(mutableSetOf()) { it.name }
-                    var displayIndex = playlistDao.getAllDirect()
+                    var displayIndex = existingPlaylists
                         .maxOfOrNull { it.displayIndex }?.plus(1) ?: 0L
                     val playlistOrder = when {
                         schema.usesAlphabeticalPlaylistOrder -> "name COLLATE NOCASE ASC, uid"
@@ -257,7 +339,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
                                 name = targetName,
                                 isThumbnailPermanent = false,
                                 thumbnailStreamId = PlaylistEntity.DEFAULT_THUMBNAIL_ID,
-                                displayIndex = displayIndex++
+                                displayIndex = displayIndex++,
+                                profileId = targetProfileId
                             )
                             val targetPlaylistId = playlistDao.insert(playlist)
                             var targetIndex = 0
@@ -290,7 +373,7 @@ class NewPipeDataMigrationManager(private val context: Context) {
                             if (firstStreamId != PlaylistEntity.DEFAULT_THUMBNAIL_ID) {
                                 playlist.thumbnailStreamId = firstStreamId
                                 playlist.uid = targetPlaylistId
-                                playlistDao.update(playlist)
+                                playlistDao.updateForProfile(targetProfileId, playlist)
                             }
                             playlists++
                         }
@@ -305,7 +388,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
                     subscriptions,
                     if (selection.importSettings) compatibleSettings.size else 0,
                     if (selection.importSponsorBlock) sponsorBlockSettings.size else 0,
-                    skippedItems
+                    skippedItems,
+                    channelGroups
                 )
             }
         } catch (error: Throwable) {
@@ -351,12 +435,14 @@ class NewPipeDataMigrationManager(private val context: Context) {
             hasSubscriptions = subscriptionColumns.containsAll(
                 REQUIRED_SUBSCRIPTION_COLUMNS
             ),
+            hasGroups = source.columnsOf(GROUP_TABLE).containsAll(setOf("uid", "name", "icon_id", "sort_order")),
+            hasGroupMemberships = source.columnsOf(GROUP_JOIN_TABLE).containsAll(setOf("group_id", "subscription_id")),
             playlistColumns = playlistColumns,
             isPipePipe = source.tableExists(PIPEPIPE_SPONSORBLOCK_WHITELIST_TABLE) ||
                 source.userVersion() >= PIPEPIPE_DATABASE_VERSION_FLOOR
         )
         if (!schema.hasHistory && !schema.hasProgress && !schema.hasPlaylists &&
-            !schema.hasSubscriptions
+            !schema.hasSubscriptions && !schema.hasGroups
         ) {
             throw UnsupportedSourceException(
                 "The source database does not contain compatible migration data"
@@ -472,6 +558,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
         val hasProgress: Boolean,
         val hasPlaylists: Boolean,
         val hasSubscriptions: Boolean,
+        val hasGroups: Boolean,
+        val hasGroupMemberships: Boolean,
         val playlistColumns: Set<String>,
         val isPipePipe: Boolean
     ) {
@@ -485,6 +573,8 @@ class NewPipeDataMigrationManager(private val context: Context) {
         private const val STATE_TABLE = "stream_state"
         private const val PLAYLIST_TABLE = "playlists"
         private const val PLAYLIST_JOIN_TABLE = "playlist_stream_join"
+        private const val GROUP_TABLE = "feed_group"
+        private const val GROUP_JOIN_TABLE = "feed_group_subscription_join"
         private const val SUBSCRIPTION_TABLE = "subscriptions"
         private const val PIPEPIPE_SPONSORBLOCK_WHITELIST_TABLE = "sponsorblock_whitelist"
         private const val PIPEPIPE_DATABASE_VERSION_FLOOR = 900

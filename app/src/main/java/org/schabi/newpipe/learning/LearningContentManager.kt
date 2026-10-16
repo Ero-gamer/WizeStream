@@ -14,6 +14,7 @@ import org.schabi.newpipe.NewPipeDatabase
 import org.schabi.newpipe.database.learning.model.LearningContentSourceEntity
 import org.schabi.newpipe.database.learning.model.LearningContentStreamEntity
 import org.schabi.newpipe.database.stream.model.StreamEntity
+import org.schabi.newpipe.profiles.ProfileManager
 
 data class LearningContentKey(
     @ColumnInfo(name = "service_id") val serviceId: Int,
@@ -21,7 +22,8 @@ data class LearningContentKey(
 )
 
 class LearningContentManager private constructor(context: Context) {
-    private val database = NewPipeDatabase.getInstance(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val database = NewPipeDatabase.getInstance(appContext)
     private val dao = database.learningContentDAO()
     private val disposables = CompositeDisposable()
 
@@ -50,6 +52,8 @@ class LearningContentManager private constructor(context: Context) {
         )
     }
 
+    fun isSourceMarked(sourceId: String): Boolean = markedSourceIds.contains(sourceId)
+
     fun isStreamLearning(serviceId: Int, url: String): Boolean = eligibleStreamKeys.contains(streamKey(serviceId, url))
 
     fun isStreamSourceMarked(serviceId: Int, url: String): Boolean = markedSourceIds.contains(streamSourceId(serviceId, url))
@@ -74,13 +78,24 @@ class LearningContentManager private constructor(context: Context) {
             )
             dao.updateSourceMetadata(sourceId, stream.title, stream.thumbnailUrl)
             dao.insertSourceStreams(listOf(LearningContentStreamEntity(sourceId, streamId)))
-            dao.markSessionsDesignated(listOf(streamId))
+            dao.markSessionsDesignated(
+                ProfileManager.getActiveProfileId(appContext),
+                listOf(streamId)
+            )
         } else {
             dao.deleteSource(sourceId)
         }
     }
 
-    fun setLocalPlaylistMarked(playlistId: Long, title: String, marked: Boolean): Completable = databaseAction {
+    fun setLocalPlaylistMarked(
+        playlistId: Long,
+        title: String,
+        marked: Boolean
+    ): Completable = databaseAction {
+        val profileId = ProfileManager.getActiveProfileId(appContext)
+        if (database.playlistDAO().getPlaylistDirectForProfile(profileId, playlistId) == null) {
+            return@databaseAction
+        }
         val sourceId = localPlaylistSourceId(playlistId)
         if (marked) {
             dao.upsertSource(
@@ -92,7 +107,10 @@ class LearningContentManager private constructor(context: Context) {
                 )
             )
             dao.updateSourceMetadata(sourceId, title, null)
-            dao.markLocalPlaylistSessionsDesignated(playlistId)
+            dao.markLocalPlaylistSessionsDesignated(
+                profileId,
+                playlistId
+            )
         } else {
             dao.deleteSource(sourceId)
         }
@@ -140,7 +158,10 @@ class LearningContentManager private constructor(context: Context) {
         if (streams.isEmpty()) return
         val streamIds = database.streamDAO().upsertAll(streams)
         dao.insertSourceStreams(streamIds.map { LearningContentStreamEntity(sourceId, it) })
-        dao.markSessionsDesignated(streamIds)
+        dao.markSessionsDesignated(
+            ProfileManager.getActiveProfileId(appContext),
+            streamIds
+        )
     }
 
     private fun databaseAction(action: () -> Unit): Completable = Completable.fromAction {

@@ -1,28 +1,39 @@
 package org.schabi.newpipe.settings;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
-import android.text.InputType;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
-import androidx.preference.EditTextPreference;
 import androidx.preference.Preference;
+import androidx.preference.SwitchPreferenceCompat;
+import androidx.work.WorkInfo;
+import androidx.work.WorkManager;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.util.AiSListRepository;
+import org.schabi.newpipe.util.AiSListSyncWorker;
 import org.schabi.newpipe.util.ContentBlockingHelper;
 import org.schabi.newpipe.util.ContentBlockingHelper.Entry;
+import org.schabi.newpipe.util.ServiceHelper;
 
-import java.util.ArrayList;
+import java.text.DateFormat;
+import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 
 public final class ContentBlockingSettingsFragment extends BasePreferenceFragment {
     private Preference blockedChannelsPreference;
     private Preference blockedVideosPreference;
-    private EditTextPreference blockedKeywordsPreference;
+    private Preference blockedKeywordsPreference;
+    private SwitchPreferenceCompat aiSListEnabledPreference;
+    private Preference aiSListUpdatePreference;
+    private Preference aiSListStatusPreference;
+    private Preference aiSListWarnBehaviorPreference;
 
     @Override
     public void onCreatePreferences(final Bundle savedInstanceState, final String rootKey) {
@@ -31,20 +42,22 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
         blockedKeywordsPreference = requirePreference(R.string.blocked_keywords_key);
         blockedChannelsPreference = requirePreference(R.string.manage_blocked_channels_key);
         blockedVideosPreference = requirePreference(R.string.manage_blocked_videos_key);
+        aiSListEnabledPreference = requirePreference(R.string.aislist_enabled_key);
+        aiSListUpdatePreference = requirePreference(R.string.aislist_update_key);
+        aiSListStatusPreference = requirePreference(R.string.aislist_status_key);
+        aiSListWarnBehaviorPreference = requirePreference(R.string.aislist_warn_behavior_key);
 
-        blockedKeywordsPreference.setOnBindEditTextListener(editText -> {
-            editText.setInputType(InputType.TYPE_CLASS_TEXT
-                    | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-            editText.setMinLines(4);
-        });
-        blockedKeywordsPreference.setOnPreferenceChangeListener((preference, value) -> {
-            final String proposed = value == null ? "" : value.toString();
-            final String sanitized = ContentBlockingHelper.sanitizeKeywords(proposed);
-            preference.setSummary(keywordSummary(sanitized));
-            if (!sanitized.equals(proposed)) {
-                blockedKeywordsPreference.setText(sanitized);
-                return false;
-            }
+        requirePreference(R.string.hide_members_only_videos_key)
+                .setOnPreferenceChangeListener((preference, newValue) -> {
+                    ServiceHelper.setHideMembersOnlyVideos((Boolean) newValue);
+                    return true;
+                });
+        blockedKeywordsPreference.setOnPreferenceClickListener(preference -> {
+            BlockedContentDialog.showKeywords(requireContext(), readKeywords(), keywords -> {
+                defaultPreferences.edit().putString(getString(R.string.blocked_keywords_key),
+                        keywords).apply();
+                updateSummaries();
+            });
             return true;
         });
         blockedChannelsPreference.setOnPreferenceClickListener(preference -> {
@@ -55,11 +68,37 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
             showEntries(true);
             return true;
         });
+        aiSListEnabledPreference.setOnPreferenceChangeListener((preference, value) -> {
+            final boolean enabled = Boolean.TRUE.equals(value);
+            aiSListUpdatePreference.setEnabled(enabled);
+            aiSListWarnBehaviorPreference.setEnabled(enabled);
+            final UUID workId = AiSListSyncWorker.setEnabled(requireContext(), enabled);
+            if (workId != null) {
+                observeAiSListUpdate(workId);
+            }
+            return true;
+        });
+        aiSListUpdatePreference.setOnPreferenceClickListener(preference -> {
+            observeAiSListUpdate(AiSListSyncWorker.enqueueImmediateSync(requireContext()));
+            return true;
+        });
+        requirePreference(R.string.aislist_about_key)
+                .setOnPreferenceClickListener(preference -> {
+                    startActivity(new Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse(AiSListRepository.PROJECT_URL)));
+                    return true;
+                });
         requirePreference(R.string.clear_blocked_content_key)
                 .setOnPreferenceClickListener(preference -> {
                     confirmClearAll();
                     return true;
                 });
+        requirePreference(R.string.allowed_channels_key)
+                .setOnPreferenceClickListener(preference -> {
+            showAllowedChannels();
+            return true;
+        });
         updateSummaries();
     }
 
@@ -67,6 +106,40 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
     public void onResume() {
         super.onResume();
         updateSummaries();
+    }
+
+    private void showAllowedChannels() {
+        final List<Entry> entries = ContentBlockingHelper.getAllowedChannels(requireContext());
+        final String[] labels = new String[entries.size() + 1];
+        labels[0] = getString(R.string.allowed_channel_add);
+        for (int index = 0; index < entries.size(); index++) {
+            labels[index + 1] = entries.get(index).getLabel();
+        }
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.allowed_channels_title)
+                .setItems(labels, (dialog, which) -> {
+                    if (which == 0) {
+                        final var select = new SelectChannelFragment();
+                        select.setOnSelectedListener((serviceId, url, name) -> {
+                            ContentBlockingHelper.allowChannel(requireContext(), serviceId,
+                                    url, name);
+                            updateSummaries();
+                        });
+                        select.show(getParentFragmentManager(), "allow_channel");
+                    } else {
+                        final Entry entry = entries.get(which - 1);
+                        new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle(entry.getLabel())
+                                .setMessage(R.string.allowed_channel_remove_confirmation)
+                                .setNegativeButton(R.string.cancel, null)
+                                .setPositiveButton(R.string.delete, (confirmation, button) -> {
+                                    entries.remove(entry);
+                                    ContentBlockingHelper.saveAllowedChannels(requireContext(),
+                                            entries);
+                                    updateSummaries();
+                                }).show();
+                    }
+                }).setNegativeButton(R.string.cancel, null).show();
     }
 
     private void showEntries(final boolean videos) {
@@ -79,33 +152,74 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
             return;
         }
 
-        final String[] labels = entries.stream().map(Entry::getLabel).toArray(String[]::new);
-        final boolean[] checked = new boolean[entries.size()];
-        java.util.Arrays.fill(checked, true);
+        BlockedContentDialog.showEntries(requireContext(), videos, entries,
+                kept -> saveEntries(videos, kept));
+    }
 
-        final AlertDialog dialog = new MaterialAlertDialogBuilder(requireContext())
-                .setTitle(videos ? R.string.manage_blocked_videos_title
-                        : R.string.manage_blocked_channels_title)
-                .setMultiChoiceItems(labels, checked,
-                        (ignored, which, isChecked) -> checked[which] = isChecked)
-                .setNegativeButton(R.string.cancel, null)
-                .setNeutralButton(R.string.clear, null)
-                .setPositiveButton(R.string.ok, (ignored, which) -> {
-                    final List<Entry> kept = new ArrayList<>();
-                    for (int index = 0; index < entries.size(); index++) {
-                        if (checked[index]) {
-                            kept.add(entries.get(index));
-                        }
+    private String readKeywords() {
+        return defaultPreferences.getString(getString(R.string.blocked_keywords_key), "");
+    }
+
+    private void observeAiSListUpdate(@NonNull final UUID workId) {
+        aiSListUpdatePreference.setEnabled(false);
+        aiSListUpdatePreference.setSummary(R.string.aislist_updating);
+        WorkManager.getInstance(requireContext())
+                .getWorkInfoByIdLiveData(workId)
+                .observe(this, workInfo -> {
+                    if (workInfo == null || !workInfo.getState().isFinished()) {
+                        return;
                     }
-                    saveEntries(videos, kept);
-                })
-                .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                .setOnClickListener(view -> {
-                    saveEntries(videos, List.of());
-                    dialog.dismiss();
-                }));
-        dialog.show();
+                    aiSListUpdatePreference.setEnabled(aiSListEnabledPreference.isChecked());
+                    aiSListUpdatePreference.setSummary(R.string.aislist_update_summary);
+                    if (workInfo.getState() == WorkInfo.State.SUCCEEDED) {
+                        final int blockCount = workInfo.getOutputData()
+                                .getInt(AiSListSyncWorker.OUTPUT_BLOCK_COUNT, 0);
+                        final int warnCount = workInfo.getOutputData()
+                                .getInt(AiSListSyncWorker.OUTPUT_WARN_COUNT, 0);
+                        if (blockCount > 0 || warnCount > 0) {
+                            Toast.makeText(
+                                    requireContext(),
+                                    getString(
+                                            R.string.aislist_updated,
+                                            blockCount,
+                                            warnCount),
+                                    Toast.LENGTH_SHORT)
+                                    .show();
+                        }
+                    } else {
+                        Toast.makeText(
+                                requireContext(),
+                                R.string.aislist_update_failed,
+                                Toast.LENGTH_SHORT)
+                                .show();
+                    }
+                    updateAiSListSummary();
+                });
+    }
+
+    private void updateAiSListSummary() {
+        if (aiSListStatusPreference == null) {
+            return;
+        }
+        final boolean enabled = aiSListEnabledPreference.isChecked();
+        aiSListUpdatePreference.setEnabled(enabled);
+        aiSListWarnBehaviorPreference.setEnabled(enabled);
+        final AiSListRepository.SyncStatus status =
+                AiSListRepository.status(requireContext());
+        if (status.getCount() <= 0 || status.getUpdatedAtMillis() <= 0) {
+            aiSListStatusPreference.setSummary(R.string.aislist_not_downloaded);
+            return;
+        }
+        final String updatedAt = DateFormat.getDateTimeInstance(
+                DateFormat.MEDIUM,
+                DateFormat.SHORT)
+                .format(new Date(status.getUpdatedAtMillis()));
+        aiSListStatusPreference.setSummary(
+                getString(
+                        R.string.aislist_status_format,
+                        status.getBlockCount(),
+                        status.getWarnCount(),
+                        updatedAt));
     }
 
     private void saveEntries(final boolean videos, @NonNull final List<Entry> entries) {
@@ -124,7 +238,6 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
                 .setNegativeButton(R.string.cancel, null)
                 .setPositiveButton(R.string.clear, (dialog, which) -> {
                     ContentBlockingHelper.clearAll(requireContext());
-                    blockedKeywordsPreference.setText("");
                     updateSummaries();
                 })
                 .show();
@@ -141,7 +254,8 @@ public final class ContentBlockingSettingsFragment extends BasePreferenceFragmen
         blockedVideosPreference.setSummary(getResources().getQuantityString(
                 R.plurals.blocked_videos_count, videoCount, videoCount));
         blockedKeywordsPreference.setSummary(keywordSummary(
-                blockedKeywordsPreference.getText()));
+                readKeywords()));
+        updateAiSListSummary();
     }
 
     @NonNull

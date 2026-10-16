@@ -8,8 +8,10 @@ package org.schabi.newpipe.sync
 import io.libp2p.core.PeerId
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 import kotlinx.serialization.Serializable
+import org.schabi.newpipe.profiles.ProfileManager
 
 internal const val STRUCTURED_PREFERENCE_SYNC_PROTOCOL_ID =
     "/wizestream/structured-preferences/1.0.0"
@@ -21,6 +23,7 @@ internal const val MAX_STRUCTURED_NAME_LENGTH = 512
 internal const val MAX_STRUCTURED_URL_LENGTH = 4_096
 internal const val MAX_FILTER_VALUES = 64
 internal const val MAX_FILTER_VALUE_LENGTH = 128
+internal const val MAX_CONTENT_BLOCK_VALUE_LENGTH = 4_096
 internal const val MAX_PORTABLE_SETTING_VALUE_LENGTH = 1_024
 internal const val MAX_DOWNLOAD_DISPLAY_NAME_LENGTH = 512
 internal const val MAX_DOWNLOAD_MIME_TYPE_LENGTH = 255
@@ -32,8 +35,10 @@ enum class StructuredPreferenceCategory {
     HOME_TABS,
     CHANNEL_PROFILES,
     FILTERS,
+    CONTENT_BLOCKING,
     SETTINGS,
-    COMPLETED_DOWNLOADS
+    COMPLETED_DOWNLOADS,
+    LESSON_DIFFICULTY
 }
 
 @Serializable
@@ -45,8 +50,11 @@ internal enum class StructuredPreferenceRecordType {
     HOME_TAB_ORDER,
     CHANNEL_PROFILE_FIELD,
     FILTER_SET,
+    CONTENT_BLOCKING_STATE,
+    CONTENT_BLOCK_ENTRY,
     PORTABLE_SETTING,
-    COMPLETED_DOWNLOAD
+    COMPLETED_DOWNLOAD,
+    LESSON_DIFFICULTY
 }
 
 @Serializable
@@ -58,19 +66,22 @@ internal enum class StructuredPreferenceChangeType {
 @Serializable
 internal data class SyncedFeedGroup(
     val name: String,
-    val iconId: Int
+    val iconId: Int,
+    val profileId: String = ProfileManager.DEFAULT_PROFILE_ID
 )
 
 @Serializable
 internal data class SyncedFeedGroupMembership(
     val groupRecordId: String,
     val serviceId: Int,
-    val subscriptionUrl: String
+    val subscriptionUrl: String,
+    val profileId: String = ProfileManager.DEFAULT_PROFILE_ID
 )
 
 @Serializable
 internal data class SyncedFeedGroupOrder(
-    val groupRecordIds: List<String>
+    val groupRecordIds: List<String>,
+    val profileId: String = ProfileManager.DEFAULT_PROFILE_ID
 )
 
 @Serializable
@@ -82,6 +93,7 @@ internal enum class SyncedHomeTabType {
     BOOKMARKS,
     HISTORY,
     DOWNLOADS,
+    LEARNING,
     KIOSK,
     CHANNEL,
     LOCAL_PLAYLIST,
@@ -132,6 +144,47 @@ internal data class SyncedFilterSet(
     val values: List<String>
 )
 
+internal val CONTENT_BLOCKING_TARGETS = setOf(
+    "search",
+    "kiosks",
+    "related_items",
+    "channel_pages",
+    "subscriptions",
+    "remote_playlists",
+    "comments"
+)
+
+internal val AISLIST_WARN_BEHAVIORS = setOf(
+    "ignore",
+    "label",
+    "warn",
+    "hide"
+)
+
+@Serializable
+internal data class SyncedContentBlockingState(
+    val enabled: Boolean,
+    val targets: List<String>,
+    val aiSListEnabled: Boolean,
+    val aiSListWarnBehavior: String,
+    val hideMembersOnlyVideos: Boolean = true,
+    val matchKeywordsInChannelNames: Boolean = false
+)
+
+@Serializable
+internal enum class ContentBlockEntryKind {
+    VIDEO,
+    CHANNEL,
+    KEYWORD
+}
+
+@Serializable
+internal data class SyncedContentBlockEntry(
+    val kind: ContentBlockEntryKind,
+    val key: String,
+    val label: String
+)
+
 internal enum class PortableSettingValueType {
     BOOLEAN,
     STRING,
@@ -168,10 +221,17 @@ internal enum class PortableSettingId {
     SHOW_THUMBNAILS,
     IMAGE_QUALITY,
     LIST_VIEW_MODE,
+    LIST_VIEW_MODE_PORTRAIT,
+    LIST_VIEW_MODE_LANDSCAPE,
+    GRID_COLUMNS,
+    GRID_COLUMNS_PORTRAIT,
+    GRID_COLUMNS_LANDSCAPE,
     PREFERRED_OPEN_ACTION,
     SHOW_HOLD_TO_APPEND,
     SHOW_PLAY_WITH_KODI,
     START_FULLSCREEN,
+    PLAYBACK_DIMMING,
+    PLAYBACK_DIMMING_DELAY,
     AUTO_QUEUE,
     INEXACT_SEEK,
     CLEAR_QUEUE_CONFIRMATION,
@@ -181,6 +241,7 @@ internal enum class PortableSettingId {
     LEARNING_MODE,
     LEARNING_NOTES,
     LEARNING_PLAYLIST_PROGRESS,
+    LEARNING_PLAYLIST_NAVIGATION,
     LEARNING_COUNT_BACKGROUND;
 
     val valueType: PortableSettingValueType
@@ -198,6 +259,7 @@ internal enum class PortableSettingId {
             SHOW_HOLD_TO_APPEND,
             SHOW_PLAY_WITH_KODI,
             START_FULLSCREEN,
+            PLAYBACK_DIMMING,
             AUTO_QUEUE,
             INEXACT_SEEK,
             CLEAR_QUEUE_CONFIRMATION,
@@ -205,6 +267,7 @@ internal enum class PortableSettingId {
             LEARNING_MODE,
             LEARNING_NOTES,
             LEARNING_PLAYLIST_PROGRESS,
+            LEARNING_PLAYLIST_NAVIGATION,
             LEARNING_COUNT_BACKGROUND -> PortableSettingValueType.BOOLEAN
 
             PLAYBACK_SPEED,
@@ -235,6 +298,9 @@ internal data class SyncedCompletedDownload(
 )
 
 @Serializable
+internal data class SyncedLessonDifficulty(val key: String, val rating: Int)
+
+@Serializable
 internal data class SyncedStructuredPreferenceRecord(
     val feedGroup: SyncedFeedGroup? = null,
     val feedGroupMembership: SyncedFeedGroupMembership? = null,
@@ -243,8 +309,11 @@ internal data class SyncedStructuredPreferenceRecord(
     val homeTabOrder: SyncedHomeTabOrder? = null,
     val channelProfileField: SyncedChannelProfileField? = null,
     val filterSet: SyncedFilterSet? = null,
+    val contentBlockingState: SyncedContentBlockingState? = null,
+    val contentBlockEntry: SyncedContentBlockEntry? = null,
     val portableSetting: SyncedPortableSetting? = null,
-    val completedDownload: SyncedCompletedDownload? = null
+    val completedDownload: SyncedCompletedDownload? = null,
+    val lessonDifficulty: SyncedLessonDifficulty? = null
 )
 
 @Serializable
@@ -422,8 +491,11 @@ internal object StructuredPreferenceSyncValidation {
             record.homeTabOrder,
             record.channelProfileField,
             record.filterSet,
+            record.contentBlockingState,
+            record.contentBlockEntry,
             record.portableSetting,
-            record.completedDownload
+            record.completedDownload,
+            record.lessonDifficulty
         )
         if (populatedRecords.size != 1) {
             throw StructuredPreferenceSyncException(
@@ -440,7 +512,8 @@ internal object StructuredPreferenceSyncValidation {
                     group.name.isBlank() ||
                     group.name != group.name.trim() ||
                     group.name.length > MAX_STRUCTURED_NAME_LENGTH ||
-                    group.iconId !in 0..MAX_FEED_GROUP_ICON_ID
+                    group.iconId !in 0..MAX_FEED_GROUP_ICON_ID ||
+                    !ProfileManager.isCanonicalProfileId(group.profileId)
                 ) {
                     invalidRecord("Feed group data is invalid")
                 }
@@ -459,6 +532,7 @@ internal object StructuredPreferenceSyncValidation {
                     membership.subscriptionUrl.isBlank() ||
                     membership.subscriptionUrl != membership.subscriptionUrl.trim() ||
                     membership.subscriptionUrl.length > MAX_STRUCTURED_URL_LENGTH ||
+                    !ProfileManager.isCanonicalProfileId(membership.profileId) ||
                     change.recordId != StructuredPreferenceRecordId.feedGroupMembership(
                         parent,
                         membership.serviceId,
@@ -473,11 +547,16 @@ internal object StructuredPreferenceSyncValidation {
                 requireCategory(change, StructuredPreferenceCategory.FEED_GROUPS)
                 requireUpsert(change)
                 requireNoParent(change)
-                if (change.recordId != StructuredPreferenceRecordId.feedGroupOrder()) {
-                    invalidRecord("The feed group order identity is invalid")
-                }
                 val order = record.feedGroupOrder
                     ?: invalidRecord("Feed group order data is missing")
+                if (
+                    !ProfileManager.isCanonicalProfileId(order.profileId) ||
+                    change.recordId != StructuredPreferenceRecordId.feedGroupOrder(
+                        order.profileId
+                    )
+                ) {
+                    invalidRecord("The feed group order identity is invalid")
+                }
                 validateOrder(order.groupRecordIds, MAX_FEED_GROUPS, ::validateUuid)
             }
 
@@ -542,6 +621,44 @@ internal object StructuredPreferenceSyncValidation {
                 }
             }
 
+            StructuredPreferenceRecordType.CONTENT_BLOCKING_STATE -> {
+                requireCategory(change, StructuredPreferenceCategory.CONTENT_BLOCKING)
+                requireUpsert(change)
+                requireNoParent(change)
+                val state = record.contentBlockingState
+                    ?: invalidRecord("Content blocking state is missing")
+                if (
+                    state.targets != state.targets.distinct().sorted() ||
+                    state.targets.any { it !in CONTENT_BLOCKING_TARGETS } ||
+                    state.aiSListWarnBehavior !in AISLIST_WARN_BEHAVIORS ||
+                    change.recordId != StructuredPreferenceRecordId.contentBlockingState()
+                ) {
+                    invalidRecord("Content blocking state is invalid")
+                }
+            }
+
+            StructuredPreferenceRecordType.CONTENT_BLOCK_ENTRY -> {
+                requireCategory(change, StructuredPreferenceCategory.CONTENT_BLOCKING)
+                requireNoParent(change)
+                val entry = record.contentBlockEntry
+                    ?: invalidRecord("Content blocking entry is missing")
+                val canonicalKey = entry.key.trim().lowercase(Locale.ROOT)
+                if (
+                    entry.key.isBlank() ||
+                    entry.key != canonicalKey ||
+                    entry.key.length > MAX_CONTENT_BLOCK_VALUE_LENGTH ||
+                    entry.label.isBlank() ||
+                    entry.label != entry.label.trim() ||
+                    entry.label.length > MAX_CONTENT_BLOCK_VALUE_LENGTH ||
+                    change.recordId != StructuredPreferenceRecordId.contentBlockEntry(
+                        entry.kind,
+                        entry.key
+                    )
+                ) {
+                    invalidRecord("Content blocking entry is invalid")
+                }
+            }
+
             StructuredPreferenceRecordType.PORTABLE_SETTING -> {
                 requireCategory(change, StructuredPreferenceCategory.SETTINGS)
                 requireNoParent(change)
@@ -553,6 +670,20 @@ internal object StructuredPreferenceSyncValidation {
                     StructuredPreferenceRecordId.portableSetting(setting.settingId)
                 ) {
                     invalidRecord("The portable setting identity is invalid")
+                }
+            }
+
+            StructuredPreferenceRecordType.LESSON_DIFFICULTY -> {
+                requireCategory(change, StructuredPreferenceCategory.LESSON_DIFFICULTY)
+                requireNoParent(change)
+                val difficulty = record.lessonDifficulty
+                    ?: invalidRecord("Lesson difficulty data is missing")
+                if (
+                    !org.schabi.newpipe.learning.LearningDifficultyIdentity.isValid(difficulty.key) ||
+                    difficulty.rating !in 0..3 ||
+                    change.recordId != structuredPreferenceDigest(difficulty.key)
+                ) {
+                    invalidRecord("Lesson difficulty data is invalid")
                 }
             }
 
@@ -662,7 +793,8 @@ internal object StructuredPreferenceSyncValidation {
             SyncedHomeTabType.FEED,
             SyncedHomeTabType.BOOKMARKS,
             SyncedHomeTabType.HISTORY,
-            SyncedHomeTabType.DOWNLOADS -> {
+            SyncedHomeTabType.DOWNLOADS,
+            SyncedHomeTabType.LEARNING -> {
                 if (!noDetails) {
                     invalidRecord("A simple home tab has unexpected data")
                 }
@@ -853,9 +985,28 @@ internal object StructuredPreferenceRecordId {
         iconId: Int,
         duplicateOrdinal: Int
     ): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(
+        return initialFeedGroup(
+            ProfileManager.DEFAULT_PROFILE_ID,
+            name,
+            iconId,
+            duplicateOrdinal
+        )
+    }
+
+    fun initialFeedGroup(
+        profileId: String,
+        name: String,
+        iconId: Int,
+        duplicateOrdinal: Int
+    ): String {
+        val identity = if (profileId == ProfileManager.DEFAULT_PROFILE_ID) {
             "feed-group\u0000${name.trim()}\u0000$iconId\u0000$duplicateOrdinal"
-                .toByteArray(Charsets.UTF_8)
+        } else {
+            "feed-group\u0000$profileId\u0000${name.trim()}\u0000$iconId\u0000" +
+                duplicateOrdinal
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(
+            identity.toByteArray(Charsets.UTF_8)
         )
         digest[6] = ((digest[6].toInt() and 0x0f) or 0x50).toByte()
         digest[8] = ((digest[8].toInt() and 0x3f) or 0x80).toByte()
@@ -876,7 +1027,15 @@ internal object StructuredPreferenceRecordId {
         )
     }
 
-    fun feedGroupOrder(): String = digest("feed-group-order")
+    fun feedGroupOrder(): String = feedGroupOrder(ProfileManager.DEFAULT_PROFILE_ID)
+
+    fun feedGroupOrder(profileId: String): String {
+        return if (profileId == ProfileManager.DEFAULT_PROFILE_ID) {
+            digest("feed-group-order")
+        } else {
+            digest("feed-group-order\u0000$profileId")
+        }
+    }
 
     fun homeTab(tab: SyncedHomeTab): String {
         return digest(
@@ -900,6 +1059,15 @@ internal object StructuredPreferenceRecordId {
 
     fun filterSet(filterId: StructuredFilterId): String {
         return digest("filter-set\u0000${filterId.name}")
+    }
+
+    fun contentBlockingState(): String {
+        return digest("content-blocking-state")
+    }
+
+    fun contentBlockEntry(kind: ContentBlockEntryKind, key: String): String {
+        val canonicalKey = key.trim().lowercase(Locale.ROOT)
+        return digest("content-block-entry\u0000${kind.name}\u0000$canonicalKey")
     }
 
     fun portableSetting(settingId: PortableSettingId): String {

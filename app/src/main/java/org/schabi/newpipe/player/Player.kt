@@ -127,6 +127,7 @@ class Player(
     private val audioController = PlayerAudioController(this)
     private val historyController = PlayerHistoryController(this)
     private val sponsorBlockController = SponsorBlockPlaybackController(this)
+    internal val channelSkipController = ChannelSkipPlaybackController(this)
     private val playbackParametersController = PlaybackParametersController(this)
     private val sleepTimerController = SleepTimerPlaybackController(this)
     private val queueModeController = PlayerQueueModeController(this, sleepTimerController)
@@ -166,13 +167,10 @@ class Player(
     )
     private val broadcastController = PlayerBroadcastController(this)
 
-    private val playerTrackSelector =
-        DefaultTrackSelector(appContext, PlayerHelper.getQualitySelector())
-    private val dataSource = PlayerDataSource(
-        appContext,
-        DefaultBandwidthMeter.Builder(appContext).build()
-    )
-    private val loadController = LoadController()
+    private var activeTrackSelector: DefaultTrackSelector? = null
+    private var activeLoadController: LoadController? = null
+    private val bandwidthMeter = DefaultBandwidthMeter.Builder(appContext).build()
+    private val dataSource = PlayerDataSource(appContext, bandwidthMeter)
     private val playerVisualizerAudioProcessor = VisualizerAudioProcessor()
     private val renderFactory: DefaultRenderersFactory = CustomRenderersFactory(
         appContext,
@@ -192,20 +190,20 @@ class Player(
 
     private val videoResolver = VideoPlaybackResolver(appContext, dataSource, qualityResolver())
     private val audioResolver = AudioPlaybackResolver(appContext, dataSource)
+    val liveQualityController = LiveQualityController(this)
     private val captionController =
-        PlayerCaptionController(this, appContext, preferences, playerTrackSelector)
+        PlayerCaptionController(this, appContext, preferences) { activeTrackSelector }
     private val streamController = PlayerStreamController(
         this,
         appContext,
         audioResolver,
         videoResolver,
-        dataSource,
-        loadController
+        dataSource
     )
     private val presentationController = PlayerPresentationController(
         this,
         videoResolver,
-        playerTrackSelector,
+        { activeTrackSelector },
         playerVisualizerAudioProcessor
     )
     private val intentController = PlayerIntentController(
@@ -238,8 +236,6 @@ class Player(
         appContext,
         playerService,
         renderFactory,
-        playerTrackSelector,
-        loadController,
         audioController,
         broadcastController,
         errorController,
@@ -268,6 +264,27 @@ class Player(
             ListHelper.getResolutionIndex(appContext, sortedVideos, playbackQuality)
         } else {
             ListHelper.getPopupResolutionIndex(appContext, sortedVideos, playbackQuality)
+        }
+
+        override fun getAutoFallbackResolutionIndex(
+            sortedVideos: MutableList<VideoStream>
+        ): Int {
+            return ListHelper.getAutoResolutionFallbackIndex(appContext, sortedVideos)
+        }
+
+        override fun isDefaultAutoQuality(): Boolean {
+            if (!videoPlayerSelected()) {
+                return false
+            }
+            val selected = preferences.getString(
+                appContext.getString(R.string.default_resolution_key),
+                appContext.getString(R.string.default_resolution_value)
+            )
+            return selected == appContext.getString(R.string.auto_resolution_key)
+        }
+
+        override fun isAutoQuality(playbackQuality: String): Boolean {
+            return playbackQuality == appContext.getString(R.string.auto_resolution_key)
         }
     }
 
@@ -324,6 +341,32 @@ class Player(
         media3Player = null
     }
 
+    fun setTrackSelectorForLifecycle(trackSelector: DefaultTrackSelector) {
+        activeTrackSelector = trackSelector
+    }
+
+    fun getTrackSelectorForLifecycle(): DefaultTrackSelector? = activeTrackSelector
+
+    fun getBandwidthMeterForLifecycle(): DefaultBandwidthMeter = bandwidthMeter
+
+    fun clearTrackSelectorForLifecycle(trackSelector: DefaultTrackSelector) {
+        if (activeTrackSelector === trackSelector) {
+            activeTrackSelector = null
+        }
+    }
+
+    fun setLoadControllerForLifecycle(loadController: LoadController) {
+        activeLoadController = loadController
+    }
+
+    fun getLoadControllerForLifecycle(): LoadController? = activeLoadController
+
+    fun clearLoadControllerForLifecycle(loadController: LoadController) {
+        if (activeLoadController === loadController) {
+            activeLoadController = null
+        }
+    }
+
     fun setAudioReactorForLifecycle(reactor: AudioReactor) {
         activeAudioReactor = reactor
     }
@@ -351,6 +394,9 @@ class Player(
     val playbackSkipSilence: Boolean
         get() = playbackParametersController.skipSilence
 
+    val playbackSkipSilenceAvailable: Boolean
+        get() = playbackParametersController.skipSilenceAvailable
+
     val playbackParameters: PlaybackParameters
         get() = playbackParametersController.parameters
 
@@ -368,9 +414,15 @@ class Player(
     val isPreparedForProgressUpdates: Boolean
         get() = stateController.isPrepared
 
-    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = stateController.onPlayWhenReadyChanged(playWhenReady, reason)
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        stateController.onPlayWhenReadyChanged(playWhenReady, reason)
+        errorController.onPlayWhenReadyChanged(playWhenReady)
+    }
 
-    override fun onPlaybackStateChanged(playbackState: Int) = stateController.onPlaybackStateChanged(playbackState)
+    override fun onPlaybackStateChanged(playbackState: Int) {
+        stateController.onPlaybackStateChanged(playbackState)
+        errorController.onPlaybackStateChanged(playbackState)
+    }
 
     override fun onIsLoadingChanged(isLoading: Boolean) = stateController.onIsLoadingChanged(isLoading)
 
@@ -413,25 +465,38 @@ class Player(
 
     private fun restartForVideoAdjustments() = lifecycleController.restartForVideoAdjustments()
 
+    fun restartForAudioTrackRecovery() = lifecycleController.restartForAudioTrackRecovery()
+
     fun updateAudioTunneling() {
+        val trackSelector = activeTrackSelector ?: return
         val tunnelingEnabled = !preferences.getBoolean(
             appContext.getString(R.string.disable_media_tunneling_key),
             false
-        ) && !audioController.equalizerState.isEnabled &&
-            !playbackPresentationMode.allowsVisualizer() && !videoAdjustments.pipelineActive
-        playerTrackSelector.parameters = playerTrackSelector.buildUponParameters()
+        ) && !audioController.volume.isEnabled && !audioController.equalizerState.isEnabled &&
+            !playbackPresentationMode.allowsVisualizer() &&
+            !videoAdjustments.effectsPipelinePrepared
+        trackSelector.parameters = trackSelector.buildUponParameters()
             .setTunnelingEnabled(tunnelingEnabled)
             .build()
     }
 
+    val isIndependentPlayerVolumeEnabled: Boolean
+        get() = audioController.volume.isEnabled
+
+    var independentPlayerVolume: Float
+        get() = audioController.volume.level
+        set(value) {
+            audioController.volume.level = value
+        }
+
     fun applyPlayerVolume() {
         val exoPlayer = media3Player ?: return
         val equalizerHeadroom = audioController.equalizerHeadroomMultiplier
-        exoPlayer.volume = if (audioController.isMuted) {
-            0.0f
-        } else {
-            sleepTimerController.volumeMultiplier * equalizerHeadroom
-        }
+        exoPlayer.volume = audioController.volume.effectiveVolume(
+            audioController.isMuted,
+            sleepTimerController.volumeMultiplier,
+            equalizerHeadroom
+        )
     }
 
     fun startSleepTimer(durationMillis: Long, fadeOut: Boolean) = sleepTimerController.startDuration(durationMillis, fadeOut)
@@ -484,6 +549,18 @@ class Player(
     override fun onPlaybackSynchronize(item: PlayQueueItem, wasBlocked: Boolean) = queueSynchronizer.synchronize(item, wasBlocked)
 
     fun seekTo(positionMillis: Long) = seekController.seekTo(positionMillis)
+
+    fun isNormalLive(): Boolean = isLive && dataSource.isNormalLive(videoUrl)
+
+    fun setNormalLive(normal: Boolean) {
+        if (!isLive) return
+        val queue = playQueue ?: return
+        dataSource.setNormalLive(videoUrl, normal)
+        videoResolver.clearLiveHlsFallback()
+        // DASH and HLS have different window origins. Start the new source at its live edge.
+        queue.setRecovery(queue.index, PlayQueueItem.RECOVERY_UNSET)
+        reloadPlayQueueManager()
+    }
 
     fun seekToDefault() = seekController.seekToDefault()
 
@@ -573,6 +650,12 @@ class Player(
     val selectedVideoStream: Optional<VideoStream>
         get() = metadataController.selectedVideoStream()
 
+    val isAutoQualitySelected: Boolean
+        get() = videoResolver.isAutoQualitySelected
+
+    val isAdaptiveQualityActive: Boolean
+        get() = videoResolver.isAdaptiveQualityActive
+
     val selectedAudioStream: Optional<AudioStream>
         get() = metadataController.selectedAudioStream()
 
@@ -608,6 +691,8 @@ class Player(
 
     fun useVideoAndSubtitles(videoAndSubtitlesEnabled: Boolean) = presentationController.useVideoAndSubtitles(videoAndSubtitlesEnabled)
 
+    fun useVideoAndSubtitlesForTemporaryBackground() = presentationController.useVideoAndSubtitles(false, temporaryBackground = true)
+
     fun setPlaybackPresentationMode(newMode: PlaybackPresentationMode) = presentationController.setMode(newMode)
 
     val currentStreamInfo: Optional<StreamInfo>
@@ -615,6 +700,10 @@ class Player(
 
     val currentState: Int
         get() = stateController.currentState
+
+    fun onChannelSkipSettingsChanged(info: StreamInfo) {
+        channelSkipController.settingsChanged(info)
+    }
 
     fun exoPlayerIsNull(): Boolean = media3Player == null
 
@@ -639,6 +728,18 @@ class Player(
 
     val isLive: Boolean
         get() = seekController.isLive()
+
+    fun isLiveQualityPlayback(): Boolean = liveQualityController.isLivePlayback
+
+    fun isAutoLiveQualitySelected(): Boolean = liveQualityController.isAutoSelected
+
+    fun hasSelectableLiveQualities(): Boolean = liveQualityController.hasSelectableOptions()
+
+    fun getLiveQualityOptions(): List<LiveQualityController.Option> = liveQualityController.options
+
+    fun getCurrentLiveQualityLabel(): String = liveQualityController.currentLabel
+
+    fun selectLiveQuality(index: Int): String? = liveQualityController.select(index)
 
     fun setPlaybackQuality(quality: String?) = streamController.setPlaybackQuality(quality)
 
@@ -686,7 +787,14 @@ class Player(
         get() = playerVisualizerAudioProcessor
 
     val trackSelector: DefaultTrackSelector
-        get() = playerTrackSelector
+        get() = checkNotNull(activeTrackSelector) {
+            "Track selector is unavailable without an active playback engine"
+        }
+
+    val loadController: LoadController
+        get() = checkNotNull(activeLoadController) {
+            "Load controller is unavailable without an active playback engine"
+        }
 
     val currentMetadata: MediaItemTag?
         get() = metadataController.currentMetadata

@@ -27,6 +27,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import org.schabi.newpipe.learning.LearningMode;
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
@@ -44,7 +45,6 @@ import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.util.ThemeHelper;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class ChooseTabsFragment extends Fragment {
@@ -249,6 +249,9 @@ public class ChooseTabsFragment extends Fragment {
         appendGroup(returnList, R.string.add_tab_current_service, currentService);
 
         final ArrayList<ChooseTabListItem> customContent = new ArrayList<>();
+        if (LearningMode.isEnabled(context)) {
+            addSingletonTabIfAvailable(context, customContent, Tab.Type.LEARNING);
+        }
         addGenericTab(customContent, Tab.Type.KIOSK, getString(R.string.kiosk_page_summary),
                 R.drawable.ic_whatshot);
         addGenericTab(customContent, Tab.Type.FEEDGROUP,
@@ -395,7 +398,12 @@ public class ChooseTabsFragment extends Fragment {
         }
 
         public void swapItems(final int fromPosition, final int toPosition) {
-            Collections.swap(tabList, fromPosition, toPosition);
+            if (fromPosition < 0 || toPosition < 0
+                    || fromPosition >= tabList.size() || toPosition >= tabList.size()) {
+                return;
+            }
+            final Tab moved = tabList.remove(fromPosition);
+            tabList.add(toPosition, moved);
             notifyItemMoved(fromPosition, toPosition);
         }
 
@@ -449,6 +457,7 @@ public class ChooseTabsFragment extends Fragment {
             @SuppressLint("ClickableViewAccessibility")
             void bind(final int position, final TabViewHolder holder) {
                 handle.setOnTouchListener(getOnTouchListener(holder));
+                handle.setOnClickListener(v -> showMoveDialog());
                 remove.setOnClickListener(v -> removeItem(getBindingAdapterPosition()));
 
                 final Tab tab = tabList.get(position);
@@ -460,6 +469,37 @@ public class ChooseTabsFragment extends Fragment {
 
                 tabNameView.setText(getTabName(type, tab));
                 tabIconView.setImageResource(tab.getTabIconRes(requireContext()));
+            }
+
+            private void showMoveDialog() {
+                final int position = getBindingAdapterPosition();
+                if (position == RecyclerView.NO_POSITION || tabList.size() < 2) {
+                    return;
+                }
+                final Tab selected = tabList.get(position);
+                final List<String> labels = new ArrayList<>();
+                final List<Integer> offsets = new ArrayList<>();
+                if (position > 0) {
+                    labels.add(getString(R.string.move_home_section_up));
+                    offsets.add(-1);
+                }
+                if (position < tabList.size() - 1) {
+                    labels.add(getString(R.string.move_home_section_down));
+                    offsets.add(1);
+                }
+                new MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(tabNameView.getText())
+                        .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                            final int current = tabList.indexOf(selected);
+                            if (current < 0) {
+                                return;
+                            }
+                            swapItems(current, current + offsets.get(which));
+                            saveChanges();
+                            handle.post(handle::requestFocus);
+                        })
+                        .setNegativeButton(R.string.cancel, null)
+                        .show();
             }
 
             private String getTabName(@NonNull final Tab.Type type, @NonNull final Tab tab) {

@@ -164,20 +164,20 @@ class Libp2pSyncNodeTest {
             phoneState.loadOrCreateIdentity().peerId.toBase58()
         )
         val tablet = Libp2pSyncNode(
-            tabletState,
-            PairingSecurity(),
-            "Test tablet",
-            ::loopbackAddresses,
-            SubscriptionSyncEngine(tabletSubscriptions),
-            TEST_LISTEN_ADDRESS
+            stateRepository = tabletState,
+            pairingSecurity = PairingSecurity(),
+            deviceName = "Test tablet",
+            advertisedAddressProvider = ::loopbackAddresses,
+            subscriptionSyncEngine = SubscriptionSyncEngine(tabletSubscriptions),
+            listenAddress = TEST_LISTEN_ADDRESS
         )
         val phone = Libp2pSyncNode(
-            phoneState,
-            PairingSecurity(),
-            "Test phone",
-            ::loopbackAddresses,
-            SubscriptionSyncEngine(phoneSubscriptions),
-            TEST_LISTEN_ADDRESS
+            stateRepository = phoneState,
+            pairingSecurity = PairingSecurity(),
+            deviceName = "Test phone",
+            advertisedAddressProvider = ::loopbackAddresses,
+            subscriptionSyncEngine = SubscriptionSyncEngine(phoneSubscriptions),
+            listenAddress = TEST_LISTEN_ADDRESS
         )
         tabletSubscriptions.add(0, TABLET_SUBSCRIPTION_URL)
         phoneSubscriptions.add(0, PHONE_SUBSCRIPTION_URL)
@@ -432,6 +432,161 @@ class Libp2pSyncNodeTest {
                     StructuredPreferenceCategory.COMPLETED_DOWNLOADS,
                     StructuredPreferenceRecordType.COMPLETED_DOWNLOAD
                 ).single().completedDownload
+            )
+        } finally {
+            phone.stop()
+            tablet.stop()
+        }
+    }
+
+    @Test
+    fun `transport recovery retries only transient connection failures`() {
+        assertTrue(
+            DeviceSyncTransportRecovery.shouldRetryTransportFailure(
+                PlaylistSyncException("The playlist synchronization connection closed")
+            )
+        )
+        assertTrue(
+            DeviceSyncTransportRecovery.shouldRetryTransportFailure(
+                HistorySyncException(
+                    "History synchronization failed",
+                    java.util.concurrent.TimeoutException()
+                )
+            )
+        )
+        assertFalse(
+            DeviceSyncTransportRecovery.shouldRetryTransportFailure(
+                PlaylistSyncException("The playlist synchronization response is malformed")
+            )
+        )
+    }
+
+    @Test
+    fun `transport recovery reports unavailable listener after retry`() {
+        val peer = TrustedPeer(
+            peerId = DeviceIdentity(generateKeyPair(KeyType.ED25519).first).peerId.toBase58(),
+            publicKey = "test",
+            deviceName = "Sleeping tablet",
+            addresses = emptyList(),
+            pairedAtEpochMillis = 0L
+        )
+        val recovery = DeviceSyncTransportRecovery.run(
+            peer = peer,
+            refreshPeer = { null }
+        ) {
+            throw SubscriptionSyncException(
+                "Could not reach Sleeping tablet",
+                java.nio.channels.ClosedChannelException()
+            )
+        }
+
+        assertTrue(recovery.retried)
+        assertFalse(recovery.rediscovered)
+        assertTrue(recovery.result.isFailure)
+        assertEquals(
+            "Peer listener unavailable after discovery and retry",
+            recovery.retryDiagnostic
+        )
+    }
+
+    @Test
+    fun `transport recovery rediscovers a restarted peer between sync categories`() {
+        val tabletState = InMemorySyncStateRepository()
+        val phoneState = InMemorySyncStateRepository()
+        val tabletSubscriptions = TestSubscriptionSyncStore(
+            tabletState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val phoneSubscriptions = TestSubscriptionSyncStore(
+            phoneState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val tabletPlaylists = TestPlaylistSyncStore(
+            tabletState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val phonePlaylists = TestPlaylistSyncStore(
+            phoneState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val tabletHistory = TestHistorySyncStore(
+            tabletState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val phoneHistory = TestHistorySyncStore(
+            phoneState.loadOrCreateIdentity().peerId.toBase58()
+        )
+        val playlistId = tabletPlaylists.createLocalPlaylist(
+            "Restarted tablet",
+            listOf(TABLET_PLAYLIST_URL)
+        )
+        tabletHistory.registerStream(HISTORY_STREAM_ID, HISTORY_STREAM_URL)
+        phoneHistory.registerStream(HISTORY_STREAM_ID, HISTORY_STREAM_URL)
+        phoneHistory.recordProgress(HISTORY_STREAM_ID, 42_000, 1_000)
+
+        val firstPort = ServerSocket(0).use { it.localPort }
+        var secondPort = ServerSocket(0).use { it.localPort }
+        while (secondPort == firstPort) {
+            secondPort = ServerSocket(0).use { it.localPort }
+        }
+
+        fun tabletNode(port: Int) = Libp2pSyncNode(
+            stateRepository = tabletState,
+            pairingSecurity = PairingSecurity(),
+            deviceName = "Test tablet",
+            advertisedAddressProvider = ::loopbackAddresses,
+            subscriptionSyncEngine = SubscriptionSyncEngine(tabletSubscriptions),
+            listenAddress = "/ip4/127.0.0.1/tcp/$port",
+            playlistSyncEngine = PlaylistSyncEngine(tabletPlaylists),
+            historySyncEngine = HistorySyncEngine(tabletHistory)
+        )
+
+        var tablet = tabletNode(firstPort)
+        val phone = Libp2pSyncNode(
+            stateRepository = phoneState,
+            pairingSecurity = PairingSecurity(),
+            deviceName = "Test phone",
+            advertisedAddressProvider = ::loopbackAddresses,
+            subscriptionSyncEngine = SubscriptionSyncEngine(phoneSubscriptions),
+            listenAddress = TEST_LISTEN_ADDRESS,
+            playlistSyncEngine = PlaylistSyncEngine(phonePlaylists),
+            historySyncEngine = HistorySyncEngine(phoneHistory)
+        )
+
+        try {
+            tablet.start()
+            phone.start()
+            val trustedTablet = phone.pair(tablet.createPairingCode())
+
+            phone.syncSubscriptions(trustedTablet)
+
+            tablet.stop()
+            tablet = tabletNode(secondPort)
+            tablet.start()
+
+            val playlistRecovery = DeviceSyncTransportRecovery.run(
+                peer = trustedTablet,
+                refreshPeer = { peer ->
+                    peer.copy(addresses = tablet.advertisedAddresses())
+                }
+            ) { peer ->
+                phone.syncPlaylists(peer)
+            }
+
+            assertTrue(playlistRecovery.retried)
+            assertTrue(playlistRecovery.rediscovered)
+            assertTrue(playlistRecovery.result.isSuccess)
+            assertEquals(
+                listOf(TABLET_PLAYLIST_URL),
+                phonePlaylists.playlistUrls(playlistId)
+            )
+
+            val historyRecovery = DeviceSyncTransportRecovery.run(
+                peer = playlistRecovery.peer,
+                refreshPeer = { null }
+            ) { peer ->
+                phone.syncHistory(peer, HistorySyncCategory.WATCH)
+            }
+
+            assertTrue(historyRecovery.result.isSuccess)
+            assertEquals(
+                42_000L,
+                tabletHistory.progressMillis(HISTORY_STREAM_URL)
             )
         } finally {
             phone.stop()

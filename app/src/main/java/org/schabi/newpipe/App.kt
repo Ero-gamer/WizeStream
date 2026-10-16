@@ -27,7 +27,6 @@ import io.reactivex.rxjava3.plugins.RxJavaPlugins
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketException
-import java.util.concurrent.Executors
 import okhttp3.OkHttpClient
 import org.acra.ACRA.init
 import org.acra.ACRA.isACRASenderServiceProcess
@@ -37,9 +36,11 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.ktx.hasAssignableCause
 import org.schabi.newpipe.network.AppProxySelector
+import org.schabi.newpipe.network.LegacyTlsCompat
 import org.schabi.newpipe.settings.NewPipeSettings
 import org.schabi.newpipe.sync.DeviceSyncBackgroundScheduler
 import org.schabi.newpipe.sync.DeviceSyncManager
+import org.schabi.newpipe.util.AiSListSyncWorker
 import org.schabi.newpipe.util.BridgeStateSaverInitializer
 import org.schabi.newpipe.util.Localization
 import org.schabi.newpipe.util.ServiceHelper
@@ -87,6 +88,10 @@ open class App :
 
         instance = this
 
+        // ACRA starts a separate process to deliver reports. WorkManager is only
+        // initialized in the main process; starting downloads here hides the original crash.
+        if (isACRASenderServiceProcess()) return
+
         if (ProcessPhoenix.isPhoenixProcess(this)) {
             Log.i(TAG, "This is a phoenix process! Aborting initialization of App[onCreate]")
             return
@@ -101,8 +106,19 @@ open class App :
         isFirstRun = lastUsedPrefVersion == -1
 
         // Initialize settings first because other initializations can use its values
+        org.schabi.newpipe.learning.LearningDifficulty.migrate(this)
         NewPipeSettings.initSettings(this)
+        // Apply the saved mode before AppCompat attaches the first activity's base context.
+        // Waiting until MainActivity.onCreate can initially resolve light resources for a
+        // forced dark/black theme, especially on pre-Android 12 cold starts.
+        ThemeHelper.setDayNightMode(this)
         applyDynamicColorsIfAvailable()
+
+        val backendPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+        org.schabi.newpipe.extractor.services.youtube.invidious.InvidiousBackend.configure(
+            backendPreferences.getBoolean(getString(R.string.invidious_enabled_key), false),
+            backendPreferences.getString(getString(R.string.invidious_instance_key), "")
+        )
 
         NewPipe.init(
             getDownloader(),
@@ -115,6 +131,8 @@ open class App :
         StateSaver.init(this)
         initNotificationChannels()
         org.schabi.newpipe.download.AutomaticDownloads.initialize(this)
+        AiSListSyncWorker.initialize(this)
+        org.schabi.newpipe.learning.LearningReminders.initialize(this)
 
         ServiceHelper.initServices(this)
 
@@ -137,7 +155,6 @@ open class App :
         }.onFailure { error ->
             Log.e(TAG, "Could not initialize automatic backups", error)
         }
-        initializeDeviceSyncListener()
     }
 
     private fun initializeDeviceSyncScheduling() {
@@ -148,19 +165,6 @@ open class App :
             )
         }.onFailure { error ->
             Log.e(TAG, "Could not initialize background device synchronization", error)
-        }
-    }
-
-    private fun initializeDeviceSyncListener() {
-        if (!DeviceSyncManager.hasTrustedPeers(this)) {
-            return
-        }
-        DEVICE_SYNC_EXECUTOR.execute {
-            runCatching {
-                DeviceSyncManager.get(this).startListening()
-            }.onFailure { error ->
-                Log.e(TAG, "Could not start the paired-device synchronization listener", error)
-            }
         }
     }
 
@@ -190,11 +194,11 @@ open class App :
 
     protected open fun getDownloader(): Downloader {
         val proxySelector = AppProxySelector.install(this)
-        val downloader = DownloaderImpl.init(
-            OkHttpClient.Builder()
-                .proxySelector(proxySelector)
-                .proxyAuthenticator(proxySelector.okHttpAuthenticator)
-        )
+        val httpClientBuilder = OkHttpClient.Builder()
+            .proxySelector(proxySelector)
+            .proxyAuthenticator(proxySelector.okHttpAuthenticator)
+        LegacyTlsCompat.configure(this, httpClientBuilder)
+        val downloader = DownloaderImpl.init(httpClientBuilder)
         setCookiesToDownloader(downloader)
         return downloader
     }
@@ -351,12 +355,6 @@ open class App :
     protected open fun isDisposedRxExceptionsReported(): Boolean = false
 
     companion object {
-        private val DEVICE_SYNC_EXECUTOR = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "DeviceSyncStartup").apply {
-                isDaemon = true
-            }
-        }
-
         const val PACKAGE_NAME: String = BuildConfig.APPLICATION_ID
         private val TAG = App::class.java.toString()
 

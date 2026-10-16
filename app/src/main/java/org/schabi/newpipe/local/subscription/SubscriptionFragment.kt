@@ -1,7 +1,6 @@
 package org.schabi.newpipe.local.subscription
 
 import android.content.Context
-import android.content.DialogInterface
 import android.os.Bundle
 import android.os.Parcelable
 import android.view.LayoutInflater
@@ -14,19 +13,19 @@ import android.view.ViewGroup
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.annotation.StringRes
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import com.evernote.android.state.State
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.xwray.groupie.Group
 import com.xwray.groupie.GroupAdapter
 import com.xwray.groupie.Section
 import com.xwray.groupie.viewbinding.GroupieViewHolder
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.disposables.CompositeDisposable
+import io.reactivex.rxjava3.schedulers.Schedulers
 import org.schabi.newpipe.R
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity.Companion.GROUP_ALL_ID
-import org.schabi.newpipe.databinding.DialogTitleBinding
 import org.schabi.newpipe.databinding.FeedItemCarouselBinding
 import org.schabi.newpipe.databinding.FragmentSubscriptionBinding
 import org.schabi.newpipe.error.ErrorInfo
@@ -41,6 +40,7 @@ import org.schabi.newpipe.local.search.ContextualSearchable
 import org.schabi.newpipe.local.subscription.SubscriptionViewModel.SubscriptionState
 import org.schabi.newpipe.local.subscription.dialog.FeedGroupDialog
 import org.schabi.newpipe.local.subscription.dialog.FeedGroupReorderDialog
+import org.schabi.newpipe.local.subscription.dialog.SubscriptionLayoutDialog
 import org.schabi.newpipe.local.subscription.item.ChannelItem
 import org.schabi.newpipe.local.subscription.item.FeedGroupAddNewGridItem
 import org.schabi.newpipe.local.subscription.item.FeedGroupAddNewItem
@@ -53,18 +53,19 @@ import org.schabi.newpipe.local.subscription.item.GroupsHeader
 import org.schabi.newpipe.local.subscription.item.Header
 import org.schabi.newpipe.local.subscription.item.ImportSubscriptionsHintPlaceholderItem
 import org.schabi.newpipe.local.subscription.item.SearchNoResultsPlaceholderItem
+import org.schabi.newpipe.profiles.ProfileManager
 import org.schabi.newpipe.util.GridLayoutManagerHelper
 import org.schabi.newpipe.util.NavigationHelper
 import org.schabi.newpipe.util.OnClickGesture
 import org.schabi.newpipe.util.ServiceHelper
-import org.schabi.newpipe.util.external_communication.ShareUtils
-import org.schabi.newpipe.util.image.ExtractorImageCompat
 
 class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualSearchable {
     private var _binding: FragmentSubscriptionBinding? = null
     private val binding get() = _binding!!
 
     private lateinit var viewModel: SubscriptionViewModel
+    private lateinit var activeProfileId: String
+    private lateinit var channelActions: SubscriptionChannelActions
     private lateinit var subscriptionManager: SubscriptionManager
     private lateinit var importExportHelper: SubscriptionsImportExportHelper
     private lateinit var savedSearchFeedManager: SavedSearchFeedManager
@@ -76,6 +77,8 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
     private lateinit var feedGroupsSortMenuItem: GroupsHeader
     private val subscriptionsSection = Section()
     private var contextualSearchQuery = ""
+    private var sortingEnabled = false
+    private var sortController: SubscriptionSortController? = null
 
     @State
     @JvmField
@@ -95,9 +98,11 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        subscriptionManager = SubscriptionManager(requireContext())
+        activeProfileId = ProfileManager.getActiveProfileId(context)
+        subscriptionManager = SubscriptionManager(context, activeProfileId)
+        channelActions = SubscriptionChannelActions(this, subscriptionManager)
         importExportHelper = SubscriptionsImportExportHelper(this)
-        savedSearchFeedManager = SavedSearchFeedManager(requireContext())
+        savedSearchFeedManager = SavedSearchFeedManager(context, activeProfileId)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -111,8 +116,18 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
     }
 
     override fun onDestroyView() {
+        channelActions.close()
+        sortController?.close()
+        sortController = null
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("subscription_sort_enabled", sortingEnabled)
+        outState.putString("subscription_sort_profile", activeProfileId)
+        sortController?.saveState(outState)
     }
 
     override fun onDestroy() {
@@ -133,6 +148,25 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
         setClickListenerToMenuItem(menu.add(R.string.saved_search_feeds)) {
             showSavedSearchFeedsDialog()
         }.setIcon(R.drawable.ic_search)
+        setClickListenerToMenuItem(menu.add(R.string.subscription_arrange)) {
+            SubscriptionLayoutDialog.newInstance(activeProfileId).show(parentFragmentManager, "subscription_layout")
+        }
+        menu.add(R.string.subscription_sort_enable).apply {
+            isCheckable = true
+            isChecked = sortingEnabled
+            setOnMenuItemClickListener {
+                sortingEnabled = !sortingEnabled
+                isChecked = sortingEnabled
+                sortController?.setEnabled(sortingEnabled)
+                updateSortingVisibility()
+                activity.invalidateOptionsMenu()
+                true
+            }
+        }
+        setClickListenerToMenuItem(menu.add(R.string.subscription_separator_add)) {
+            sortController?.editSeparator()
+        }.isVisible = sortingEnabled
+        if (!sortingEnabled) buildGridColumnsMenu(menu)
         buildImportExportMenu(menu)
     }
 
@@ -158,7 +192,7 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
                                 feed.query
                             )
                         }.toTypedArray()
-                        AlertDialog.Builder(requireContext())
+                        MaterialAlertDialogBuilder(requireContext())
                             .setTitle(R.string.saved_search_feeds)
                             .setItems(labels) { _, index ->
                                 NavigationHelper.openSavedSearchFeed(fm, feeds[index])
@@ -175,6 +209,28 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
                     }
                 )
         )
+    }
+
+    private fun buildGridColumnsMenu(menu: Menu) {
+        if (!SubscriptionViewModel.shouldUseGridForSubscription(requireContext())) return
+
+        val submenu = menu.addSubMenu(R.string.grid_columns)
+        SubscriptionGridColumns.presets.forEach { columns ->
+            val label = if (columns == SubscriptionGridColumns.AUTO) {
+                getString(R.string.auto)
+            } else {
+                columns.toString()
+            }
+            addMenuItemToSubmenu(submenu, label) {
+                SubscriptionGridColumns.set(requireContext(), columns)
+                applySubscriptionLayout()
+                if (::feedGroupsCarousel.isInitialized) {
+                    feedGroupsCarousel.notifyChanged(
+                        FeedGroupCarouselItem.PAYLOAD_UPDATE_GRID_COLUMNS
+                    )
+                }
+            }
+        }
     }
 
     private fun buildImportExportMenu(menu: Menu) {
@@ -246,12 +302,48 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
     override fun initViews(rootView: View, savedInstanceState: Bundle?) {
         super.initViews(rootView, savedInstanceState)
         _binding = FragmentSubscriptionBinding.bind(rootView)
+        sortingEnabled = savedInstanceState?.getString("subscription_sort_profile") == activeProfileId &&
+            savedInstanceState?.getBoolean("subscription_sort_enabled") == true
 
+        applySubscriptionLayout()
+        binding.itemsList.adapter = groupAdapter
+        binding.itemsList.itemAnimator = null
+
+        viewModel = ViewModelProvider(this)[SubscriptionViewModel::class.java]
+        viewModel.setProfile(activeProfileId)
+        viewModel.setFilterQuery(contextualSearchQuery)
+        viewModel.stateLiveData.observe(viewLifecycleOwner) { it?.let(this::handleResult) }
+        viewModel.feedGroupsLiveData.observe(viewLifecycleOwner) {
+            it?.let { (groups, listViewMode) ->
+                handleFeedGroups(groups, listViewMode)
+            }
+        }
+
+        setupInitialLayout()
+        sortController = SubscriptionSortController(requireContext(), activeProfileId, binding, savedInstanceState).apply {
+            setQuery(contextualSearchQuery)
+            setEnabled(sortingEnabled)
+            restoreScroll(savedInstanceState)
+        }
+        if (sortingEnabled) updateSortingVisibility()
+    }
+
+    private fun updateSortingVisibility() {
+        binding.itemsList.animate().cancel()
+        binding.itemsList.alpha = 1f
+        binding.itemsList.visibility = if (sortingEnabled) View.GONE else View.VISIBLE
+    }
+
+    private fun applySubscriptionLayout() {
         val gridMode = SubscriptionViewModel.shouldUseGridForSubscription(requireContext())
-        val minimumItemWidth = resources.getDimensionPixelSize(
-            R.dimen.channel_item_grid_min_width
-        )
-        binding.itemsList.layoutManager = if (gridMode) {
+        val fixedColumns = SubscriptionGridColumns.get(requireContext())
+        val minimumItemWidth = resources.getDimensionPixelSize(R.dimen.channel_item_grid_min_width)
+        binding.itemsList.layoutManager = if (gridMode && fixedColumns > 0) {
+            groupAdapter.spanCount = fixedColumns
+            GridLayoutManager(requireContext(), fixedColumns).apply {
+                spanSizeLookup = groupAdapter.spanSizeLookup
+            }
+        } else if (gridMode) {
             GridLayoutManagerHelper.create(binding.itemsList, minimumItemWidth) { spanCount ->
                 groupAdapter.spanCount = spanCount
                 groupAdapter.spanSizeLookup
@@ -262,19 +354,6 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
                 spanSizeLookup = groupAdapter.spanSizeLookup
             }
         }
-        binding.itemsList.adapter = groupAdapter
-        binding.itemsList.itemAnimator = null
-
-        viewModel = ViewModelProvider(this)[SubscriptionViewModel::class.java]
-        viewModel.setFilterQuery(contextualSearchQuery)
-        viewModel.stateLiveData.observe(viewLifecycleOwner) { it?.let(this::handleResult) }
-        viewModel.feedGroupsLiveData.observe(viewLifecycleOwner) {
-            it?.let { (groups, listViewMode) ->
-                handleFeedGroups(groups, listViewMode)
-            }
-        }
-
-        setupInitialLayout()
     }
 
     private fun setupInitialLayout() {
@@ -356,51 +435,11 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
         if (::viewModel.isInitialized) {
             viewModel.setFilterQuery(contextualSearchQuery)
         }
+        sortController?.setQuery(contextualSearchQuery)
     }
 
     private fun toggleListViewMode() {
         viewModel.setListViewMode(!viewModel.getListViewMode())
-    }
-
-    private fun showLongTapDialog(selectedItem: ChannelInfoItem) {
-        val commands = arrayOf(
-            getString(R.string.share),
-            getString(R.string.open_in_browser),
-            getString(R.string.unsubscribe)
-        )
-
-        val actions = DialogInterface.OnClickListener { _, i ->
-            when (i) {
-                0 -> ShareUtils.shareText(
-                    requireContext(),
-                    selectedItem.name,
-                    selectedItem.url,
-                    ExtractorImageCompat.thumbnailImages(selectedItem)
-                )
-
-                1 -> ShareUtils.openUrlInBrowser(requireContext(), selectedItem.url)
-
-                2 -> deleteChannel(selectedItem)
-            }
-        }
-
-        val dialogTitleBinding = DialogTitleBinding.inflate(LayoutInflater.from(requireContext()))
-        dialogTitleBinding.root.isSelected = true
-        dialogTitleBinding.itemTitleView.text = selectedItem.name
-        dialogTitleBinding.itemAdditionalDetails.visibility = View.GONE
-
-        AlertDialog.Builder(requireContext())
-            .setCustomTitle(dialogTitleBinding.root)
-            .setItems(commands, actions)
-            .show()
-    }
-
-    private fun deleteChannel(selectedItem: ChannelInfoItem) {
-        disposables.add(
-            subscriptionManager.deleteSubscription(selectedItem.serviceId, selectedItem.url).subscribe {
-                Toast.makeText(requireContext(), getString(R.string.channel_unsubscribed), Toast.LENGTH_SHORT).show()
-            }
-        )
     }
 
     override fun doInitialLoadLogic() = Unit
@@ -414,7 +453,7 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
             selectedItem.name
         )
 
-        override fun held(selectedItem: ChannelInfoItem) = showLongTapDialog(selectedItem)
+        override fun held(selectedItem: ChannelInfoItem) = channelActions.show(selectedItem)
     }
 
     override fun handleResult(result: SubscriptionState) {
@@ -423,6 +462,10 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
         when (result) {
             is SubscriptionState.LoadedState -> {
                 result.subscriptions.forEach {
+                    if (it is org.schabi.newpipe.local.subscription.item.SubscriptionSeparatorItem) {
+                        val entry = it.entry
+                        it.onEdit = { sortController?.editSeparator(entry) }
+                    }
                     if (it is ChannelItem) {
                         it.gesturesListener = listenerChannelItem
                         it.itemVersion = if (SubscriptionViewModel.shouldUseGridForSubscription(requireContext())) {
@@ -497,7 +540,7 @@ class SubscriptionFragment : BaseStateFragment<SubscriptionState>(), ContextualS
 
     override fun hideLoading() {
         super.hideLoading()
-        binding.itemsList.animate(true, 200)
+        if (sortingEnabled) updateSortingVisibility() else binding.itemsList.animate(true, 200)
     }
 
     companion object {

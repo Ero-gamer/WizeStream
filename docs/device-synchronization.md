@@ -30,8 +30,12 @@ devices. The result lists the data categories exchanged with each device and
 any category or device that needs attention.
 
 **Automatic background synchronization** is enabled after pairing unless it
-is turned off. WizeStream attempts a background sync approximately once per
-hour when:
+is turned off. While it is enabled and at least one trusted device is paired,
+WizeStream keeps a small foreground listener active so another trusted device
+can reach it even when the app UI is closed. Android shows a low-priority
+**Device synchronization** notification while this listener is active.
+
+WizeStream attempts a background sync approximately once per hour when:
 
 - The device has sufficient battery.
 - The device is connected through Wi-Fi or Ethernet.
@@ -45,18 +49,35 @@ needed.
 
 WizeStream synchronizes:
 
-- Subscriptions
-- Feed groups
-- Local and remote playlists
-- Watch history and playback progress
+- Local profile identities and profile metadata
+- Subscriptions within each profile
+- Feed groups within each profile
+- Local and remote playlists within each profile
+- Watch history and playback progress within each profile
 - Home-tab configuration
 - Content-filter selections
+- Blocked videos, blocked channels, blocked keywords, blocking targets, and AiSList behavior
 - Per-channel playback profiles
 - Other explicitly allowlisted settings
 - Completed-download metadata
 
 Search history is private by default. It is synchronized only when
 **Synchronize search history** is enabled on both devices.
+
+Profiles use stable local UUIDs during device synchronization, so Personal, Work, Study,
+and other containers remain distinct even when they contain the same channel, playlist, or video.
+The **Default** profile keeps its existing synchronization identity for compatibility.
+
+Search history, Learning Notes, home tabs, content filters, blocked-content rules, channel playback
+profiles, allowlisted settings, and completed-download metadata remain app-wide rather than
+profile-scoped.
+
+AiSList synchronization exchanges only the user's enable/behavior choices. Each device downloads
+and caches the upstream AiSList data independently.
+
+Deleting a non-Default profile is a local action. WizeStream tombstones that profile ID on the
+device so a paired peer cannot silently recreate it there. Profile-owned data already synchronized
+to another device is not remotely deleted merely because the profile was removed locally.
 
 Synchronization merges supported records from both devices. It is not a
 one-way replacement or a full-device backup. Keep using
@@ -85,6 +106,8 @@ the missing local media.
 - Synchronization uses an encrypted peer-to-peer connection between paired
   device identities.
 - Only trusted devices can participate after the one-time QR pairing succeeds.
+- Profile-owned synchronized records remain separated by stable profile IDs.
+- A locally deleted profile ID is blocked from being re-materialized by a paired peer.
 - Search history remains excluded unless it is explicitly enabled on both devices.
 - Media-file contents are never transferred by device synchronization.
 - Clearing trusted devices requires every device to pair again.

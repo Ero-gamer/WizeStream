@@ -35,14 +35,22 @@ public final class ContentBlockingHelper {
         final String targetsKey = context.getString(R.string.content_blocking_targets_key);
         final Set<String> enabledTargets = preferences.contains(targetsKey)
                 ? copySet(preferences, targetsKey) : null;
+        final boolean enabled = preferences.getBoolean(context.getString(
+                R.string.content_blocking_enabled_key), true)
+                && isTargetEnabled(enabledTargets, target);
+        final Set<String> aiBlockedChannels = enabled
+                ? AiSListContentHelper.hiddenChannelEntries(context)
+                : Collections.emptySet();
         return Rules.create(
-                preferences.getBoolean(context.getString(
-                        R.string.content_blocking_enabled_key), true)
-                        && isTargetEnabled(enabledTargets, target),
+                enabled,
                 copySet(preferences, context.getString(R.string.blocked_videos_key)),
                 copySet(preferences, context.getString(R.string.blocked_channels_key)),
                 preferences.getString(context.getString(
-                        R.string.blocked_keywords_key), ""));
+                        R.string.blocked_keywords_key), ""),
+                preferences.getBoolean(context.getString(
+                        R.string.blocked_keywords_channel_names_key), false),
+                aiBlockedChannels,
+                copySet(preferences, context.getString(R.string.allowed_channels_key)));
     }
 
     public static void blockVideo(@NonNull final Context context,
@@ -85,6 +93,22 @@ public final class ContentBlockingHelper {
         saveEntries(context, R.string.blocked_channels_key, entries);
     }
 
+    public static void allowChannel(@NonNull final Context context, final int serviceId,
+                                    @NonNull final String url, @NonNull final String name) {
+        addEntry(context, R.string.allowed_channels_key, serviceId + "|" + url, name);
+    }
+
+    @NonNull
+    public static List<Entry> getAllowedChannels(@NonNull final Context context) {
+        return decodeEntries(copySet(preferences(context),
+                context.getString(R.string.allowed_channels_key)));
+    }
+
+    public static void saveAllowedChannels(@NonNull final Context context,
+                                          @NonNull final List<Entry> entries) {
+        saveEntries(context, R.string.allowed_channels_key, entries);
+    }
+
     public static void clearAll(@NonNull final Context context) {
         preferences(context).edit()
                 .remove(context.getString(R.string.blocked_videos_key))
@@ -95,11 +119,74 @@ public final class ContentBlockingHelper {
 
     public static boolean isPreferenceKey(@NonNull final Context context,
                                           @Nullable final String key) {
-        return context.getString(R.string.content_blocking_enabled_key).equals(key)
-                || context.getString(R.string.blocked_videos_key).equals(key)
-                || context.getString(R.string.blocked_channels_key).equals(key)
-                || context.getString(R.string.blocked_keywords_key).equals(key)
-                || context.getString(R.string.content_blocking_targets_key).equals(key);
+        return getRuleChange(context, key) != null;
+    }
+
+    public static boolean shouldReloadForPreference(@NonNull final Context context,
+                                                    @Nullable final String key,
+                                                    @NonNull final Target target) {
+        final RuleChange ruleChange = getRuleChange(context, key);
+        return ruleChange != null && shouldReloadForRuleChange(target, ruleChange);
+    }
+
+    static boolean shouldReloadForRuleChange(@NonNull final Target target,
+                                             @NonNull final RuleChange ruleChange) {
+        if (target != Target.COMMENTS) {
+            return true;
+        }
+
+        // Comments can only be affected by the master switch, target selection, or keyword rules.
+        // Video/channel/AiSList rules apply to stream/channel-style items and should not trigger a
+        // network comments refresh when they change.
+        return ruleChange == RuleChange.ENABLED
+                || ruleChange == RuleChange.TARGETS
+                || ruleChange == RuleChange.KEYWORDS;
+    }
+
+    @Nullable
+    private static RuleChange getRuleChange(@NonNull final Context context,
+                                            @Nullable final String key) {
+        if (context.getString(R.string.content_blocking_enabled_key).equals(key)) {
+            return RuleChange.ENABLED;
+        }
+        if (context.getString(R.string.content_blocking_targets_key).equals(key)) {
+            return RuleChange.TARGETS;
+        }
+        if (context.getString(R.string.blocked_videos_key).equals(key)) {
+            return RuleChange.VIDEOS;
+        }
+        if (context.getString(R.string.allowed_channels_key).equals(key)
+                || context.getString(R.string.blocked_channels_key).equals(key)) {
+            return RuleChange.CHANNELS;
+        }
+        if (context.getString(R.string.blocked_keywords_key).equals(key)) {
+            return RuleChange.KEYWORDS;
+        }
+        if (context.getString(R.string.blocked_keywords_channel_names_key).equals(key)) {
+            return RuleChange.KEYWORD_CHANNEL_NAMES;
+        }
+        if (context.getString(R.string.hide_members_only_videos_key).equals(key)) {
+            return RuleChange.MEMBERS_ONLY;
+        }
+        if (context.getString(R.string.aislist_enabled_key).equals(key)) {
+            return RuleChange.AISLIST_ENABLED;
+        }
+        if (context.getString(R.string.aislist_warn_behavior_key).equals(key)) {
+            return RuleChange.AISLIST_WARN_BEHAVIOR;
+        }
+        return null;
+    }
+
+    enum RuleChange {
+        ENABLED,
+        TARGETS,
+        VIDEOS,
+        CHANNELS,
+        KEYWORDS,
+        KEYWORD_CHANNEL_NAMES,
+        MEMBERS_ONLY,
+        AISLIST_ENABLED,
+        AISLIST_WARN_BEHAVIOR
     }
 
     static boolean isTargetEnabled(@Nullable final Set<String> enabledTargets,
@@ -255,6 +342,11 @@ public final class ContentBlockingHelper {
         }
 
         @NonNull
+        public String getKey() {
+            return key;
+        }
+
+        @NonNull
         public String getLabel() {
             return label;
         }
@@ -270,17 +362,25 @@ public final class ContentBlockingHelper {
         private final Set<String> blockedChannelNames;
         @NonNull
         private final List<String> blockedKeywords;
+        private final boolean matchKeywordsInChannelNames;
+        @NonNull
+        private final Set<String> aiBlockedChannels;
+        private Set<String> allowedChannelKeys = Collections.emptySet();
 
         private Rules(final boolean enabled,
                       @NonNull final Set<String> blockedVideoUrls,
                       @NonNull final Set<String> blockedChannelKeys,
                       @NonNull final Set<String> blockedChannelNames,
-                      @NonNull final List<String> blockedKeywords) {
+                      @NonNull final List<String> blockedKeywords,
+                      final boolean matchKeywordsInChannelNames,
+                      @NonNull final Set<String> aiBlockedChannels) {
             this.enabled = enabled;
             this.blockedVideoUrls = blockedVideoUrls;
             this.blockedChannelKeys = blockedChannelKeys;
             this.blockedChannelNames = blockedChannelNames;
             this.blockedKeywords = blockedKeywords;
+            this.matchKeywordsInChannelNames = matchKeywordsInChannelNames;
+            this.aiBlockedChannels = aiBlockedChannels;
         }
 
         @NonNull
@@ -288,6 +388,39 @@ public final class ContentBlockingHelper {
                             @NonNull final Set<String> videoEntries,
                             @NonNull final Set<String> channelEntries,
                             @Nullable final String keywords) {
+            return create(enabled, videoEntries, channelEntries, keywords,
+                    false, Collections.emptySet());
+        }
+
+        @NonNull
+        static Rules create(final boolean enabled,
+                            @NonNull final Set<String> videoEntries,
+                            @NonNull final Set<String> channelEntries,
+                            @Nullable final String keywords,
+                            @NonNull final Set<String> aiBlockedChannels) {
+            return create(enabled, videoEntries, channelEntries, keywords,
+                    false, aiBlockedChannels);
+        }
+
+        @NonNull
+        static Rules create(final boolean enabled,
+                            @NonNull final Set<String> videoEntries,
+                            @NonNull final Set<String> channelEntries,
+                            @Nullable final String keywords,
+                            final boolean matchKeywordsInChannelNames,
+                            @NonNull final Set<String> aiBlockedChannels) {
+            return create(enabled, videoEntries, channelEntries, keywords,
+                    matchKeywordsInChannelNames, aiBlockedChannels, Collections.emptySet());
+        }
+
+        @NonNull
+        static Rules create(final boolean enabled,
+                            @NonNull final Set<String> videoEntries,
+                            @NonNull final Set<String> channelEntries,
+                            @Nullable final String keywords,
+                            final boolean matchKeywordsInChannelNames,
+                            @NonNull final Set<String> aiBlockedChannels,
+                            @NonNull final Set<String> allowedEntries) {
             final Set<String> videos = new HashSet<>();
             for (final String value : videoEntries) {
                 videos.add(decodeEntry(value).key);
@@ -308,7 +441,20 @@ public final class ContentBlockingHelper {
                     keywordList.add(keyword);
                 }
             }
-            return new Rules(enabled, videos, channels, channelNames, keywordList);
+            final Rules rules = new Rules(
+                    enabled,
+                    videos,
+                    channels,
+                    channelNames,
+                    keywordList,
+                    matchKeywordsInChannelNames,
+                    new HashSet<>(aiBlockedChannels));
+            final Set<String> allowed = new HashSet<>();
+            for (final String value : allowedEntries) {
+                allowed.add(decodeEntry(value).key);
+            }
+            rules.allowedChannelKeys = allowed;
+            return rules;
         }
 
         public boolean isBlocked(@Nullable final InfoItem item) {
@@ -317,31 +463,59 @@ public final class ContentBlockingHelper {
             }
             if (item instanceof StreamInfoItem) {
                 final StreamInfoItem stream = (StreamInfoItem) item;
-                return blockedVideoUrls.contains(normalize(stream.getUrl()))
-                        || isBlockedChannel(stream.getUploaderUrl(), stream.getUploaderName())
-                        || containsKeyword(stream.getName());
+                if (blockedVideoUrls.contains(normalize(stream.getUrl()))) {
+                    return true;
+                }
+                if (isAllowedChannel(stream.getServiceId(), stream.getUploaderUrl())) {
+                    return false;
+                }
+                return isBlockedChannel(
+                                stream.getServiceId(),
+                                stream.getUploaderUrl(),
+                                stream.getUploaderName())
+                        || containsKeyword(stream.getName())
+                        || matchKeywordsInChannelNames
+                        && containsKeyword(stream.getUploaderName());
             }
             if (item instanceof ChannelInfoItem) {
-                return isBlockedChannel(item.getUrl(), item.getName())
+                if (isAllowedChannel(item.getServiceId(), item.getUrl())) {
+                    return false;
+                }
+                return isBlockedChannel(item.getServiceId(), item.getUrl(), item.getName())
                         || containsKeyword(item.getName());
             }
             if (item instanceof PlaylistInfoItem) {
                 final PlaylistInfoItem playlist = (PlaylistInfoItem) item;
-                return isBlockedChannel(null, playlist.getUploaderName())
-                        || containsKeyword(playlist.getName());
+                return isBlockedChannel(
+                        playlist.getServiceId(), null, playlist.getUploaderName())
+                        || containsKeyword(playlist.getName())
+                        || matchKeywordsInChannelNames
+                        && containsKeyword(playlist.getUploaderName());
             }
             if (item instanceof PostInfoItem) {
                 final PostInfoItem post = (PostInfoItem) item;
-                return isBlockedChannel(post.getUploaderUrl(), post.getUploaderName())
-                        || containsKeyword(post.getName(), post.getContent());
+                if (isAllowedChannel(post.getServiceId(), post.getUploaderUrl())) {
+                    return false;
+                }
+                return isBlockedChannel(
+                        post.getServiceId(), post.getUploaderUrl(), post.getUploaderName())
+                        || containsKeyword(post.getName(), post.getContent())
+                        || matchKeywordsInChannelNames
+                        && containsKeyword(post.getUploaderName());
             }
             return containsKeyword(item.getName());
         }
 
-        private boolean isBlockedChannel(@Nullable final String url,
+        private boolean isAllowedChannel(final int serviceId, @Nullable final String url) {
+            return !isBlank(url) && allowedChannelKeys.contains(normalize(serviceId + "|" + url));
+        }
+
+        private boolean isBlockedChannel(final int serviceId,
+                                         @Nullable final String url,
                                          @Nullable final String name) {
             return blockedChannelKeys.contains(normalize(url))
-                    || blockedChannelNames.contains(normalize(name));
+                    || blockedChannelNames.contains(normalize(name))
+                    || AiSListRepository.isListed(serviceId, aiBlockedChannels, url, name);
         }
 
         private boolean containsKeyword(@Nullable final String... values) {

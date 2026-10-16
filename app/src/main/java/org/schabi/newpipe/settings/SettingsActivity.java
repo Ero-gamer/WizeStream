@@ -1,6 +1,7 @@
 package org.schabi.newpipe.settings;
 
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -29,6 +30,7 @@ import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.EdgeToEdgeHelper;
 import org.schabi.newpipe.util.KeyboardUtil;
 import org.schabi.newpipe.util.ThemeHelper;
+import org.schabi.newpipe.util.TvRemoteKeyDispatcher;
 import org.schabi.newpipe.views.FocusOverlayView;
 
 import java.util.concurrent.TimeUnit;
@@ -61,12 +63,31 @@ public class SettingsActivity extends AppCompatActivity implements
         PreferenceSearchResultListener {
     public static final String EXTRA_OPEN_UPDATE_SETTINGS =
             "org.schabi.newpipe.settings.OPEN_UPDATE_SETTINGS";
+    public static final String EXTRA_OPEN_PROFILES_SETTINGS =
+            "org.schabi.newpipe.settings.OPEN_PROFILES_SETTINGS";
     private static final String SEARCH_TEXT = "settings_search_text";
+    private static final String TWO_PANE = "settings_two_pane";
+    private boolean twoPane;
 
     private final CompositeDisposable disposables = new CompositeDisposable();
     private View searchContainer;
     private EditText searchEditText;
     private String searchText = "";
+
+    private final TvRemoteKeyDispatcher remoteKeys = new TvRemoteKeyDispatcher(this);
+
+    @Override
+    public boolean dispatchKeyEvent(final KeyEvent event) {
+        return remoteKeys.dispatch(event) || super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public void onWindowFocusChanged(final boolean hasFocus) {
+        if (!hasFocus) {
+            remoteKeys.clear();
+        }
+        super.onWindowFocusChanged(hasFocus);
+    }
 
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
@@ -77,6 +98,8 @@ public class SettingsActivity extends AppCompatActivity implements
 
         final SettingsLayoutBinding binding = SettingsLayoutBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        twoPane = getResources().getBoolean(R.bool.use_two_pane_settings);
+        binding.settingsNavigationHolder.setVisibility(twoPane ? View.VISIBLE : View.GONE);
         EdgeToEdgeHelper.applySystemBarPadding(binding.getRoot());
         setSupportActionBar(binding.settingsToolbarLayout.toolbar);
         final ActionBar actionBar = getSupportActionBar();
@@ -98,9 +121,23 @@ public class SettingsActivity extends AppCompatActivity implements
                     }
                 }, false);
 
-        if (savedInstanceState == null) {
-            final Fragment initial = getIntent().getBooleanExtra(EXTRA_OPEN_UPDATE_SETTINGS, false)
-                    ? new UpdateSettingsFragment() : new MainSettingsFragment();
+        if (savedInstanceState != null
+                && savedInstanceState.getBoolean(TWO_PANE) != twoPane) {
+            rebuildNavigationForWindow();
+        } else if (savedInstanceState == null) {
+            final Fragment initial;
+            if (getIntent().getBooleanExtra(EXTRA_OPEN_UPDATE_SETTINGS, false)) {
+                initial = new UpdateSettingsFragment();
+            } else if (getIntent().getBooleanExtra(EXTRA_OPEN_PROFILES_SETTINGS, false)) {
+                initial = new ProfilesSettingsFragment();
+            } else {
+                initial = twoPane ? new VideoAudioSettingsFragment() : new MainSettingsFragment();
+            }
+            if (twoPane) {
+                getSupportFragmentManager().beginTransaction()
+                        .replace(R.id.settings_navigation_holder, new MainSettingsFragment())
+                        .commit();
+            }
             getSupportFragmentManager().beginTransaction()
                     .replace(R.id.settings_fragment_holder, initial).commit();
         }
@@ -112,6 +149,7 @@ public class SettingsActivity extends AppCompatActivity implements
     @Override
     protected void onSaveInstanceState(@NonNull final Bundle outState) {
         outState.putString(SEARCH_TEXT, searchEditText.getText().toString());
+        outState.putBoolean(TWO_PANE, twoPane);
         super.onSaveInstanceState(outState);
     }
 
@@ -158,8 +196,44 @@ public class SettingsActivity extends AppCompatActivity implements
         }
         final Fragment fragment = instantiateFragment(destination);
         fragment.setArguments(new Bundle(preference.getExtras()));
-        showSettingsFragment(fragment);
+        if (twoPane && caller instanceof MainSettingsFragment) {
+            getSupportFragmentManager().popBackStackImmediate(null,
+                    FragmentManager.POP_BACK_STACK_INCLUSIVE);
+            getSupportFragmentManager().beginTransaction()
+                    .replace(R.id.settings_fragment_holder, fragment).commit();
+        } else {
+            showSettingsFragment(fragment);
+        }
         return true;
+    }
+
+    private void rebuildNavigationForWindow() {
+        final FragmentManager manager = getSupportFragmentManager();
+        final Fragment current = manager.findFragmentById(R.id.settings_fragment_holder);
+        final Fragment destination;
+        if (current != null && !(current instanceof MainSettingsFragment)) {
+            destination = instantiateFragment(current.getClass().getName());
+            destination.setArguments(current.getArguments());
+            destination.setInitialSavedState(manager.saveFragmentInstanceState(current));
+        } else {
+            destination = twoPane ? new VideoAudioSettingsFragment() : null;
+        }
+        manager.popBackStackImmediate(null, FragmentManager.POP_BACK_STACK_INCLUSIVE);
+        final Fragment navigation = manager.findFragmentById(R.id.settings_navigation_holder);
+        if (navigation != null) {
+            manager.beginTransaction().remove(navigation).commitNow();
+        }
+        if (twoPane) {
+            manager.beginTransaction()
+                    .replace(R.id.settings_navigation_holder, new MainSettingsFragment())
+                    .replace(R.id.settings_fragment_holder, destination).commit();
+        } else {
+            manager.beginTransaction()
+                    .replace(R.id.settings_fragment_holder, new MainSettingsFragment()).commitNow();
+            if (destination != null) {
+                showSettingsFragment(destination);
+            }
+        }
     }
 
     private Fragment instantiateFragment(@NonNull final String className) {

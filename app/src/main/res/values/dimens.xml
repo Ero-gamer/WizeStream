@@ -96,6 +96,7 @@
     <dimen name="video_item_detail_sub_channel_text_size">14sp</dimen>
     <dimen name="video_item_detail_upload_date_text_size">13sp</dimen>
     <dimen name="video_item_detail_description_text_size">13sp</dimen>
+    <dimen name="subscription_split_button_corner_radius">24dp</dimen>
     <dimen name="channel_rss_title_size">12sp</dimen>
     <!-- Elements Size -->
     <dimen name="video_item_detail_uploader_image_size">32dp</dimen>
@@ -158,6 +159,8 @@
     <!-- Main Material bottom navigation -->
     <dimen name="main_bottom_navigation_height">64dp</dimen>
     <dimen name="main_navigation_rail_width">80dp</dimen>
+    <dimen name="main_compact_navigation_rail_width">64dp</dimen>
+    <dimen name="main_compact_toolbar_height">48dp</dimen>
     <dimen name="main_bottom_navigation_item_padding_top">6dp</dimen>
     <dimen name="main_bottom_navigation_item_padding_bottom">6dp</dimen>
 
@@ -165,4 +168,5 @@
     <dimen name="video_detail_navigation_height">64dp</dimen>
     <dimen name="video_detail_navigation_item_padding">6dp</dimen>
 
+    <dimen name="feed_floating_refresh_bottom_padding">80dp</dimen>
 </resources>

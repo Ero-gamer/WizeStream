@@ -7,7 +7,7 @@
         <item name="colorAccent">@android:color/transparent</item>
 
         <item name="android:windowBackground">@drawable/splash_background</item>
-        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowDisablePreview">false</item>
     </style>
     <style name="Base.OpeningTheme" parent="Base.V21.OpeningTheme">
         <item name="android:navigationBarColor">?attr/colorSurface</item>
@@ -16,6 +16,7 @@
 
     <!-- Base Theme -->
     <style name="Base.V21" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="main_navigation_background_color">?attr/colorSurfaceContainer</item>
         <item name="actionColor">?attr/colorOnSurface</item>
         <item name="floatingActionButtonStyle">@style/FloatingActionButtonTheme</item>
         <item name="snackbarStyle">@style/Widget.wizestream.Snackbar</item>
@@ -129,6 +130,7 @@
 
     <!-- Black Theme -->
     <style name="Base.V21.BlackTheme" parent="DarkTheme">
+        <item name="main_navigation_background_color">@color/black_background_color</item>
         <item name="android:windowBackground">@color/black_background_color</item>
         <item name="windowBackground">@color/black_background_color</item>
         <item name="android:statusBarColor">?attr/colorSurface</item>
@@ -166,6 +168,7 @@
 
     <!-- Preserve AMOLED-black surfaces after Material You supplies the accent palette. -->
     <style name="ThemeOverlay_wizestream_BlackSurfaces">
+        <item name="main_navigation_background_color">@color/black_background_color</item>
         <item name="android:windowBackground">@color/black_background_color</item>
         <item name="windowBackground">@color/black_background_color</item>
         <item name="android:statusBarColor">@color/black_background_color</item>
@@ -238,6 +241,21 @@
         <item name="colorControlActivated">#0061A4</item>
         <item name="colorSecondaryContainer">#D7E3F7</item>
         <item name="colorOnSecondaryContainer">#101C2B</item>
+    </style>
+
+    <style name="ThemeOverlay_wizestream_ThemeColor_Cyan">
+        <item name="colorPrimary">#006874</item>
+        <item name="colorPrimaryFixedDim">#4FD8EB</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryDark">#97F0FF</item>
+        <item name="colorPrimaryContainer">#97F0FF</item>
+        <item name="colorOnPrimaryContainer">#001F24</item>
+        <item name="colorSecondary">#4A6267</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorAccent">#4A6267</item>
+        <item name="colorControlActivated">#006874</item>
+        <item name="colorSecondaryContainer">#CDE7EC</item>
+        <item name="colorOnSecondaryContainer">#051F23</item>
     </style>
 
     <style name="ThemeOverlay_wizestream_ThemeColor_Purple">
@@ -319,6 +337,16 @@
         <item name="android:windowMinWidthMinor">@dimen/abc_dialog_min_width_minor</item>
         <item name="windowMinWidthMajor">@dimen/abc_dialog_min_width_major</item>
         <item name="windowMinWidthMinor">@dimen/abc_dialog_min_width_minor</item>
+    </style>
+
+    <style name="ThemeOverlay_wizestream_StreamActionDialog"
+        parent="ThemeOverlay_wizestream_Dialog">
+        <item name="colorSurface">?attr/colorSurfaceContainer</item>
+        <item name="colorBackgroundFloating">?attr/colorSurface</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
+        <item name="windowBackground">?attr/colorSurface</item>
+        <item name="android:textColorPrimary">?attr/colorOnSurface</item>
+        <item name="android:textColorSecondary">?attr/colorOnSurfaceVariant</item>
     </style>
 
     <style name="LightDialogTheme" parent="Theme.Material3.DayNight.Dialog">
@@ -415,12 +443,17 @@
         <item name="android:widgetLayout">@layout/preference_widget_material_switch</item>
     </style>
 
+    <style name="Preference.MaterialEditText" parent="Preference.DialogPreference.EditTextPreference">
+        <item name="dialogLayout">@layout/preference_dialog_material_edittext</item>
+    </style>
+
     <style name="LightSettingsTheme" parent="LightTheme">
         <item name="colorAccent">?attr/colorPrimary</item>
         <item name="android:textColorPrimary">?attr/colorOnSurface</item>
         <item name="android:textColorSecondary">?attr/colorOnSurfaceVariant</item>
         <item name="colorControlNormal">?attr/colorOnSurfaceVariant</item>
         <item name="preferenceCategoryTitleTextColor">?attr/colorPrimary</item>
+        <item name="editTextPreferenceStyle">@style/Preference.MaterialEditText</item>
         <item name="switchPreferenceCompatStyle">@style/Preference.MaterialSwitchPreferenceCompat</item>
     </style>
 
@@ -430,6 +463,7 @@
         <item name="android:textColorSecondary">?attr/colorOnSurfaceVariant</item>
         <item name="colorControlNormal">?attr/colorOnSurfaceVariant</item>
         <item name="preferenceCategoryTitleTextColor">?attr/colorPrimary</item>
+        <item name="editTextPreferenceStyle">@style/Preference.MaterialEditText</item>
         <item name="switchPreferenceCompatStyle">@style/Preference.MaterialSwitchPreferenceCompat</item>
     </style>
 
@@ -439,6 +473,7 @@
         <item name="android:textColorSecondary">?attr/colorOnSurfaceVariant</item>
         <item name="colorControlNormal">?attr/colorOnSurfaceVariant</item>
         <item name="preferenceCategoryTitleTextColor">?attr/colorPrimary</item>
+        <item name="editTextPreferenceStyle">@style/Preference.MaterialEditText</item>
         <item name="switchPreferenceCompatStyle">@style/Preference.MaterialSwitchPreferenceCompat</item>
     </style>
 

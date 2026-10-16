@@ -5,8 +5,7 @@
     android:id="@+id/video_item_detail"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/windowBackground"
-    android:focusableInTouchMode="true">
+    android:background="?attr/windowBackground">
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
         android:id="@+id/detail_main_content"
@@ -159,6 +158,7 @@
                 <!-- TITLE -->
                 <RelativeLayout
                     android:id="@+id/detail_title_root_layout"
+                    android:foreground="@drawable/tv_focus_ring"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:background="?attr/selectableItemBackground"
@@ -167,8 +167,9 @@
                     android:paddingStart="12dp"
                     tools:ignore="RtlSymmetry">
 
-                    <org.schabi.newpipe.views.NewPipeTextView
+                    <org.schabi.newpipe.views.MediaTextView
                         android:id="@+id/detail_video_title_view"
+                        app:mediaTextRole="videoTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="30dp"
@@ -245,6 +246,7 @@
                         <!--UPLOADER-->
                         <LinearLayout
                             android:id="@+id/detail_uploader_root_layout"
+                            android:foreground="@drawable/tv_focus_ring"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_toStartOf="@id/details_panel"
@@ -286,8 +288,9 @@
                                 android:gravity="center_vertical"
                                 android:orientation="vertical">
 
-                                <org.schabi.newpipe.views.NewPipeTextView
+                                <org.schabi.newpipe.views.MediaTextView
                                     android:id="@+id/detail_sub_channel_text_view"
+                                    app:mediaTextRole="channelName"
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:ellipsize="marquee"
@@ -326,7 +329,7 @@
                             android:paddingLeft="6dp"
                             android:paddingRight="6dp">
 
-                            <org.schabi.newpipe.views.NewPipeTextView
+                            <org.schabi.newpipe.views.MediaTextView
                                 android:id="@+id/detail_view_count_view"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
@@ -337,6 +340,7 @@
                                 android:textColor="?attr/colorOnSurfaceVariant"
                                 android:textSize="@dimen/video_item_detail_views_text_size"
                                 tools:ignore="RtlHardcoded"
+                                app:mediaTextRole="videoMetadata"
                                 tools:text="2,816,821,505 views" />
 
 
@@ -420,6 +424,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_playlist_append"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -437,6 +442,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_background"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -454,6 +460,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_popup"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -471,6 +478,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_download"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -501,6 +509,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_share"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -518,6 +527,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_open_in_browser"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -535,6 +545,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_cast"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -552,6 +563,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_play_with_kodi"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -569,6 +581,7 @@
 
                         <org.schabi.newpipe.views.NewPipeTextView
                             android:id="@+id/detail_controls_crash_the_player"
+                            android:foreground="@drawable/tv_focus_ring"
                             style="@style/VideoDetailActionText"
                             android:layout_width="@dimen/detail_control_width"
                             android:layout_height="@dimen/detail_control_height"
@@ -676,8 +689,9 @@
             android:theme="@style/ContrastTintTheme"
             tools:ignore="RtlHardcoded">
 
-            <org.schabi.newpipe.views.NewPipeTextView
+            <org.schabi.newpipe.views.MediaTextView
                 android:id="@+id/overlay_title_text_view"
+                app:mediaTextRole="videoTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="marquee"
@@ -690,8 +704,9 @@
                 tools:ignore="RtlHardcoded"
                 tools:text="The Video Title LONG very LONVideo Title LONG very LONG" />
 
-            <org.schabi.newpipe.views.NewPipeTextView
+            <org.schabi.newpipe.views.MediaTextView
                 android:id="@+id/overlay_channel_text_view"
+                app:mediaTextRole="channelName"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="marquee"

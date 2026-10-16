@@ -23,6 +23,7 @@ import org.schabi.newpipe.database.AppDatabase
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.local.subscription.FeedGroupIcon
+import org.schabi.newpipe.profiles.ProfileManager
 import org.schabi.newpipe.settings.tabs.Tab
 import org.schabi.newpipe.settings.tabs.TabsJsonHelper
 
@@ -57,6 +58,148 @@ class RoomStructuredPreferenceSyncStoreTest {
         tabletDatabase.close()
         phonePreferences.edit().clear().commit()
         tabletPreferences.edit().clear().commit()
+    }
+
+    @Test
+    fun lessonDifficultyChangesAndClearsSynchronizeWithoutMixingProfiles() {
+        val peerPhone = newPeerId()
+        val peerTablet = newPeerId()
+        val key = org.schabi.newpipe.learning.LearningDifficulty.key(
+            ProfileManager.DEFAULT_PROFILE_ID,
+            0,
+            "https://example.com/lesson"
+        )
+        val workKey = org.schabi.newpipe.learning.LearningDifficulty.key(
+            "11111111-1111-1111-1111-111111111111",
+            0,
+            "https://example.com/lesson"
+        )
+        phonePreferences.edit().putInt(key, 3).putInt(workKey, 1).commit()
+        val phoneStore = RoomStructuredPreferenceSyncStore(
+            context,
+            phoneDatabase,
+            peerPhone,
+            phonePreferences,
+            canMaterializeProfile = { true }
+        )
+        val tabletStore = RoomStructuredPreferenceSyncStore(
+            context,
+            tabletDatabase,
+            peerTablet,
+            tabletPreferences,
+            canMaterializeProfile = { true }
+        )
+        val phone = StructuredPreferenceSyncEngine(phoneStore)
+        val tablet = StructuredPreferenceSyncEngine(tabletStore)
+        synchronize(StructuredPreferenceCategory.LESSON_DIFFICULTY, phone, phoneStore, tablet, tabletStore)
+        assertEquals(3, tabletPreferences.getInt(key, 0))
+        assertEquals(1, tabletPreferences.getInt(workKey, 0))
+        tabletPreferences.edit().putInt(key, 0).commit()
+        synchronize(StructuredPreferenceCategory.LESSON_DIFFICULTY, tablet, tabletStore, phone, phoneStore)
+        assertEquals(0, phonePreferences.getInt(key, -1))
+        assertEquals(1, phonePreferences.getInt(workKey, 0))
+        phonePreferences.edit().remove(workKey).commit()
+        synchronize(StructuredPreferenceCategory.LESSON_DIFFICULTY, phone, phoneStore, tablet, tabletStore)
+        assertTrue(!tabletPreferences.contains(workKey))
+        val disabled = StructuredPreferenceSyncEngine(tabletStore) { false }
+        val response = disabled.handleRequest(
+            peerPhone,
+            phone.createRequest(peerTablet, StructuredPreferenceCategory.LESSON_DIFFICULTY)
+        )
+        assertTrue(!response.accepted)
+    }
+
+    @Test
+    fun feedGroupsWithSameIdentityStayIsolatedAcrossProfiles() {
+        val workProfile = "11111111-1111-1111-1111-111111111111"
+        seedProfileFeedGroup(
+            phoneDatabase,
+            ProfileManager.DEFAULT_PROFILE_ID,
+            "https://example.com/channel/shared",
+            "News"
+        )
+        seedProfileFeedGroup(
+            phoneDatabase,
+            workProfile,
+            "https://example.com/channel/shared",
+            "News"
+        )
+        seedProfileSubscription(
+            tabletDatabase,
+            ProfileManager.DEFAULT_PROFILE_ID,
+            "https://example.com/channel/shared"
+        )
+        seedProfileSubscription(
+            tabletDatabase,
+            workProfile,
+            "https://example.com/channel/shared"
+        )
+
+        val phoneStore = RoomStructuredPreferenceSyncStore(
+            context,
+            phoneDatabase,
+            newPeerId(),
+            phonePreferences,
+            canMaterializeProfile = { true }
+        )
+        val tabletStore = RoomStructuredPreferenceSyncStore(
+            context,
+            tabletDatabase,
+            newPeerId(),
+            tabletPreferences,
+            canMaterializeProfile = { true }
+        )
+        val phone = StructuredPreferenceSyncEngine(phoneStore)
+        val tablet = StructuredPreferenceSyncEngine(tabletStore)
+
+        synchronize(
+            StructuredPreferenceCategory.FEED_GROUPS,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertEquals(
+            setOf(ProfileManager.DEFAULT_PROFILE_ID, workProfile),
+            tabletDatabase.feedGroupDAO().getAllDirect().mapTo(mutableSetOf()) {
+                it.profileId
+            }
+        )
+        assertProfileGroupMembership(
+            tabletDatabase,
+            ProfileManager.DEFAULT_PROFILE_ID,
+            "https://example.com/channel/shared"
+        )
+        assertProfileGroupMembership(
+            tabletDatabase,
+            workProfile,
+            "https://example.com/channel/shared"
+        )
+
+        phoneDatabase.feedGroupDAO().deleteAllForProfile(ProfileManager.DEFAULT_PROFILE_ID)
+        synchronize(
+            StructuredPreferenceCategory.FEED_GROUPS,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertTrue(
+            tabletDatabase.feedGroupDAO()
+                .getAllDirectForProfile(ProfileManager.DEFAULT_PROFILE_ID)
+                .isEmpty()
+        )
+        assertEquals(
+            1,
+            tabletDatabase.feedGroupDAO().getAllDirectForProfile(workProfile).size
+        )
+        assertProfileGroupMembership(
+            tabletDatabase,
+            workProfile,
+            "https://example.com/channel/shared"
+        )
     }
 
     @Test
@@ -132,6 +275,124 @@ class RoomStructuredPreferenceSyncStoreTest {
                 emptySet()
             )
         )
+    }
+
+    @Test
+    fun blockedContentEntriesMergeAndMaterializeThroughRoomStores() {
+        val blockedChannelsKey = context.getString(R.string.blocked_channels_key)
+        val blockedVideosKey = context.getString(R.string.blocked_videos_key)
+        val blockedKeywordsKey = context.getString(R.string.blocked_keywords_key)
+        val blockingEnabledKey = context.getString(R.string.content_blocking_enabled_key)
+        val blockingTargetsKey = context.getString(R.string.content_blocking_targets_key)
+        val aiSListEnabledKey = context.getString(R.string.aislist_enabled_key)
+        val aiSListWarnBehaviorKey = context.getString(R.string.aislist_warn_behavior_key)
+        val hideMembersOnlyKey = context.getString(R.string.hide_members_only_videos_key)
+        val keywordChannelNamesKey =
+            context.getString(R.string.blocked_keywords_channel_names_key)
+        val phoneChannel = "https://example.com/channel/blocked\tBlocked channel"
+        val tabletVideo = "https://example.com/watch?v=blocked\tBlocked video"
+
+        phonePreferences.edit()
+            .putStringSet(blockedChannelsKey, setOf(phoneChannel))
+            .commit()
+        tabletPreferences.edit()
+            .putStringSet(blockedVideosKey, setOf(tabletVideo))
+            .putString(blockedKeywordsKey, "Spoiler")
+            .commit()
+
+        val phoneStore = RoomStructuredPreferenceSyncStore(
+            context,
+            phoneDatabase,
+            newPeerId(),
+            phonePreferences
+        )
+        val tabletStore = RoomStructuredPreferenceSyncStore(
+            context,
+            tabletDatabase,
+            newPeerId(),
+            tabletPreferences
+        )
+        val phone = StructuredPreferenceSyncEngine(phoneStore)
+        val tablet = StructuredPreferenceSyncEngine(tabletStore)
+
+        synchronize(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertEquals(
+            setOf(phoneChannel),
+            phonePreferences.getStringSet(blockedChannelsKey, emptySet())
+        )
+        assertEquals(
+            setOf(phoneChannel),
+            tabletPreferences.getStringSet(blockedChannelsKey, emptySet())
+        )
+        assertEquals(
+            setOf(tabletVideo),
+            phonePreferences.getStringSet(blockedVideosKey, emptySet())
+        )
+        assertEquals(
+            setOf(tabletVideo),
+            tabletPreferences.getStringSet(blockedVideosKey, emptySet())
+        )
+        assertEquals("Spoiler", phonePreferences.getString(blockedKeywordsKey, null))
+        assertEquals("Spoiler", tabletPreferences.getString(blockedKeywordsKey, null))
+
+        phonePreferences.edit()
+            .putBoolean(blockingEnabledKey, false)
+            .putStringSet(blockingTargetsKey, setOf("search"))
+            .putBoolean(aiSListEnabledKey, true)
+            .putString(aiSListWarnBehaviorKey, "hide")
+            .putBoolean(hideMembersOnlyKey, false)
+            .putBoolean(keywordChannelNamesKey, true)
+            .commit()
+        synchronize(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertEquals(false, tabletPreferences.getBoolean(blockingEnabledKey, true))
+        assertEquals(
+            setOf("search"),
+            tabletPreferences.getStringSet(blockingTargetsKey, emptySet())
+        )
+        assertEquals(true, tabletPreferences.getBoolean(aiSListEnabledKey, false))
+        assertEquals(
+            "hide",
+            tabletPreferences.getString(aiSListWarnBehaviorKey, null)
+        )
+        assertEquals(
+            false,
+            tabletPreferences.getBoolean(hideMembersOnlyKey, true)
+        )
+        assertEquals(
+            true,
+            tabletPreferences.getBoolean(keywordChannelNamesKey, false)
+        )
+
+        phonePreferences.edit().putStringSet(blockedChannelsKey, emptySet()).commit()
+        synchronize(
+            StructuredPreferenceCategory.CONTENT_BLOCKING,
+            phone,
+            phoneStore,
+            tablet,
+            tabletStore
+        )
+
+        assertTrue(phonePreferences.getStringSet(blockedChannelsKey, emptySet()).isNullOrEmpty())
+        assertTrue(tabletPreferences.getStringSet(blockedChannelsKey, emptySet()).isNullOrEmpty())
+        assertEquals(
+            setOf(tabletVideo),
+            phonePreferences.getStringSet(blockedVideosKey, emptySet())
+        )
+        assertEquals("Spoiler", phonePreferences.getString(blockedKeywordsKey, null))
     }
 
     @Test
@@ -316,6 +577,69 @@ class RoomStructuredPreferenceSyncStoreTest {
             type = StructuredPreferenceChangeType.UPSERT,
             record = record
         )
+    }
+
+    private fun seedProfileSubscription(
+        database: AppDatabase,
+        profileId: String,
+        url: String
+    ) {
+        database.subscriptionDAO().upsertAll(
+            listOf(
+                SubscriptionEntity(
+                    serviceId = SERVICE_ID,
+                    url = url,
+                    name = profileId,
+                    profileId = profileId
+                )
+            )
+        )
+    }
+
+    private fun seedProfileFeedGroup(
+        database: AppDatabase,
+        profileId: String,
+        memberUrl: String,
+        name: String
+    ) {
+        seedProfileSubscription(database, profileId, memberUrl)
+        val groupId = database.feedGroupDAO().insert(
+            FeedGroupEntity(
+                uid = 0,
+                name = name,
+                icon = FeedGroupIcon.NEWS,
+                profileId = profileId
+            )
+        )
+        val memberId = requireNotNull(
+            database.subscriptionDAO().getSubscriptionDirectForProfile(
+                profileId,
+                SERVICE_ID,
+                memberUrl
+            )
+        ).uid
+        database.feedGroupDAO().updateSubscriptionsForGroupForProfile(
+            profileId,
+            groupId,
+            listOf(memberId)
+        )
+    }
+
+    private fun assertProfileGroupMembership(
+        database: AppDatabase,
+        profileId: String,
+        expectedUrl: String
+    ) {
+        val group = database.feedGroupDAO().getAllDirectForProfile(profileId).single()
+        val subscriptions = database.subscriptionDAO()
+            .getAllDirectForProfile(profileId)
+            .associateBy { it.uid }
+        val urls = database.feedGroupDAO()
+            .getSubscriptionIdsForDirectForProfile(profileId, group.uid)
+            .mapNotNull(subscriptions::get)
+            .mapNotNull(SubscriptionEntity::url)
+            .toSet()
+        assertEquals(setOf(expectedUrl), urls)
     }
 
     private fun seedFeedGroups(database: AppDatabase, memberUrl: String) {

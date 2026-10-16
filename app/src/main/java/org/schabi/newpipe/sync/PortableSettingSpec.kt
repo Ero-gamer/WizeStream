@@ -94,6 +94,11 @@ internal fun portableSettingSpecs(context: Context): List<PortableSettingSpec> =
     portableSetting(context, PortableSettingId.SHOW_THUMBNAILS, R.string.show_thumbnail_key),
     portableSetting(context, PortableSettingId.IMAGE_QUALITY, R.string.image_quality_key),
     portableSetting(context, PortableSettingId.LIST_VIEW_MODE, R.string.list_view_mode_key),
+    portableSetting(context, PortableSettingId.LIST_VIEW_MODE_PORTRAIT, R.string.list_view_mode_portrait_key),
+    portableSetting(context, PortableSettingId.LIST_VIEW_MODE_LANDSCAPE, R.string.list_view_mode_landscape_key),
+    portableSetting(context, PortableSettingId.GRID_COLUMNS, R.string.grid_columns_key),
+    portableSetting(context, PortableSettingId.GRID_COLUMNS_PORTRAIT, R.string.grid_columns_portrait_key),
+    portableSetting(context, PortableSettingId.GRID_COLUMNS_LANDSCAPE, R.string.grid_columns_landscape_key),
     portableSetting(
         context,
         PortableSettingId.PREFERRED_OPEN_ACTION,
@@ -114,6 +119,8 @@ internal fun portableSettingSpecs(context: Context): List<PortableSettingSpec> =
         PortableSettingId.START_FULLSCREEN,
         R.string.start_main_player_fullscreen_key
     ),
+    portableSetting(context, PortableSettingId.PLAYBACK_DIMMING, R.string.playback_dimming_key),
+    portableSetting(context, PortableSettingId.PLAYBACK_DIMMING_DELAY, R.string.playback_dimming_delay_key),
     portableSetting(context, PortableSettingId.AUTO_QUEUE, R.string.auto_queue_key),
     portableSetting(context, PortableSettingId.INEXACT_SEEK, R.string.use_inexact_seek_key),
     portableSetting(
@@ -130,6 +137,7 @@ internal fun portableSettingSpecs(context: Context): List<PortableSettingSpec> =
     ),
     portableSetting(context, PortableSettingId.LEARNING_MODE, R.string.learning_mode_key),
     portableSetting(context, PortableSettingId.LEARNING_NOTES, R.string.learning_notes_key),
+    portableSetting(context, PortableSettingId.LEARNING_PLAYLIST_NAVIGATION, R.string.learning_playlist_navigation_key),
     portableSetting(
         context,
         PortableSettingId.LEARNING_PLAYLIST_PROGRESS,

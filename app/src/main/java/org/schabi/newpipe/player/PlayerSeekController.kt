@@ -6,7 +6,7 @@
 package org.schabi.newpipe.player
 
 import android.util.Log
-import androidx.core.math.MathUtils
+import androidx.media3.common.C
 import androidx.media3.common.Timeline
 import org.schabi.newpipe.player.helper.PlayerHelper
 
@@ -42,16 +42,19 @@ internal class PlayerSeekController(private val player: Player) {
     }
 
     fun seekTo(positionMillis: Long) {
+        if (player.isNormalLive()) return
+        player.channelSkipController.manualSeek(positionMillis)
         if (Player.DEBUG) {
             Log.d(Player.TAG, "seekBy() called with: position = [$positionMillis]")
         }
         if (!player.exoPlayerIsNull()) {
             val exoPlayer = player.exoPlayer
-            exoPlayer.seekTo(MathUtils.clamp(positionMillis, 0, exoPlayer.duration))
+            exoPlayer.seekTo(resolveSeekPosition(positionMillis, exoPlayer.duration))
         }
     }
 
     fun seekToDefault() {
+        player.channelSkipController.manualSeek(0)
         if (!player.exoPlayerIsNull()) {
             player.exoPlayer.seekToDefaultPosition()
         }
@@ -89,5 +92,16 @@ internal class PlayerSeekController(private val player: Player) {
             Log.d(Player.TAG, "player.isCurrentWindowDynamic() failed: ", error)
         }
         false
+    }
+
+    companion object {
+        internal fun resolveSeekPosition(positionMillis: Long, durationMillis: Long): Long {
+            val position = positionMillis.coerceAtLeast(0)
+            return if (durationMillis == C.TIME_UNSET || durationMillis < 0) {
+                position
+            } else {
+                position.coerceAtMost(durationMillis)
+            }
+        }
     }
 }

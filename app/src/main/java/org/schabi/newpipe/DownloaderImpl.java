@@ -8,6 +8,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.preference.PreferenceManager;
 
+import org.schabi.newpipe.extractor.services.youtube.invidious.InvidiousBackend;
+import org.schabi.newpipe.network.InvidiousInterceptor;
 import org.schabi.newpipe.error.ReCaptchaActivity;
 import org.schabi.newpipe.extractor.downloader.CancellableCall;
 import org.schabi.newpipe.extractor.downloader.Downloader;
@@ -73,6 +75,10 @@ public final class DownloaderImpl extends Downloader {
             parseUrl(url);
         }
         this.client = builder
+                .followRedirects(!InvidiousBackend.isEnabled())
+                .followSslRedirects(!InvidiousBackend.isEnabled())
+                .addInterceptor(new InvidiousInterceptor())
+                .addInterceptor(new YoutubeRequestTimingInterceptor())
                 .addInterceptor(chain -> {
                     final okhttp3.Request originalRequest = chain.request();
                     if (originalRequest.header("User-Agent") != null) {
@@ -82,6 +88,17 @@ public final class DownloaderImpl extends Downloader {
                     return chain.proceed(originalRequest.newBuilder()
                             .header("User-Agent", USER_AGENT)
                             .build());
+                })
+                // Network interceptors run again for every redirect. Select stored cookies
+                // using the actual destination, without carrying them onto another host.
+                .addNetworkInterceptor(chain -> {
+                    final okhttp3.Request request = chain.request();
+                    InvidiousBackend.checkRequest(request.url().uri());
+                    final String cookies = getCookies(request.url().toString());
+                    if (request.header("Cookie") != null || cookies.isEmpty()) {
+                        return chain.proceed(request);
+                    }
+                    return chain.proceed(request.newBuilder().header("Cookie", cookies).build());
                 })
                 .readTimeout(30, TimeUnit.SECONDS)
 //                .cache(new Cache(new File(context.getExternalCacheDir(), "okhttp"),
@@ -112,11 +129,19 @@ public final class DownloaderImpl extends Downloader {
     }
 
     public String getCookies(final String url) {
-        final String youtubeCookie = url.contains(YOUTUBE_DOMAIN)
-                ? getCookie(YOUTUBE_RESTRICTED_MODE_COOKIE_KEY) : null;
-
-        // Recaptcha cookie is always added TODO: not sure if this is necessary
-        return Stream.of(youtubeCookie, getCookie(ReCaptchaActivity.RECAPTCHA_COOKIES_KEY))
+        final HttpUrl destination;
+        try {
+            destination = HttpUrl.get(url);
+        } catch (final IllegalArgumentException error) {
+            return "";
+        }
+        final String host = destination.host();
+        if (!destination.isHttps()
+                || !(host.equals(YOUTUBE_DOMAIN) || host.endsWith("." + YOUTUBE_DOMAIN))) {
+            return "";
+        }
+        return Stream.of(getCookie(YOUTUBE_RESTRICTED_MODE_COOKIE_KEY),
+                getCookie(ReCaptchaActivity.RECAPTCHA_COOKIES_KEY))
                 .filter(Objects::nonNull)
                 .flatMap(cookies -> Arrays.stream(cookies.split("; *")))
                 .distinct()
@@ -190,8 +215,11 @@ public final class DownloaderImpl extends Downloader {
         call.enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull final Call call, @NonNull final IOException e) {
-                cancellableCall.setFinished();
-                callback.onError(e);
+                try {
+                    callback.onError(e);
+                } finally {
+                    cancellableCall.setFinished();
+                }
             }
 
             @Override
@@ -200,11 +228,11 @@ public final class DownloaderImpl extends Downloader {
                 try (response) {
                     final Response extractorResponse = buildExtractorResponse(
                             response, request.url());
-                    cancellableCall.setFinished();
                     callback.onSuccess(extractorResponse);
                 } catch (final IOException | ExtractionException e) {
-                    cancellableCall.setFinished();
                     callback.onError(e);
+                } finally {
+                    cancellableCall.setFinished();
                 }
             }
         });
@@ -224,11 +252,6 @@ public final class DownloaderImpl extends Downloader {
                 .method(httpMethod, requestBody)
                 .url(parseUrl(url))
                 .addHeader("User-Agent", USER_AGENT);
-
-        final String cookies = getCookies(url);
-        if (!cookies.isEmpty()) {
-            requestBuilder.addHeader("Cookie", cookies);
-        }
 
         headers.forEach((headerName, headerValueList) -> {
             requestBuilder.removeHeader(headerName);

@@ -855,6 +855,333 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrateDatabaseFrom23to24PreservesFeedMembershipsWithUnknownDiscoveryTime() {
+        testHelper.createDatabase(AppDatabase.DATABASE_NAME, Migrations.DB_VER_23).use { database ->
+            database.execSQL("INSERT INTO subscriptions (uid, service_id, url, notification_mode) VALUES (7, 0, 'https://example.com/channel', 0)")
+            database.execSQL("INSERT INTO streams (uid, service_id, url, title, stream_type, duration, uploader) VALUES (42, 0, 'https://example.com/video', 'Video', 'VIDEO_STREAM', 60, 'Channel')")
+            database.execSQL("INSERT INTO feed (stream_id, subscription_id, youtube_mode_mask) VALUES (42, 7, 1)")
+        }
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_24,
+            true,
+            Migrations.MIGRATION_23_24
+        )
+        migrated.query("SELECT stream_id, subscription_id, first_discovered_at FROM feed").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(42L, cursor.getLong(0))
+            assertEquals(7L, cursor.getLong(1))
+            assertEquals(0L, cursor.getLong(2))
+        }
+    }
+
+    @Test
+    fun migrateDatabaseFrom24to25ScopesSubscriptionsAndGroupsToDefaultProfile() {
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+        testHelper.createDatabase(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_24
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO subscriptions " +
+                    "(uid, service_id, url, notification_mode) " +
+                    "VALUES (7, 0, 'https://example.com/profile-channel', 0)"
+            )
+            database.execSQL(
+                "INSERT INTO feed_group (uid, name, icon_id, sort_order) " +
+                    "VALUES (3, 'Existing group', 0, 0)"
+            )
+        }
+
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_25,
+            true,
+            Migrations.MIGRATION_24_25
+        )
+
+        migrated.query(
+            "SELECT profile_id FROM subscriptions WHERE uid = 7"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(defaultProfileId, cursor.getString(0))
+        }
+        migrated.query(
+            "SELECT profile_id FROM feed_group WHERE uid = 3"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(defaultProfileId, cursor.getString(0))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO subscriptions " +
+                "(service_id, url, notification_mode, profile_id) " +
+                "VALUES (0, 'https://example.com/profile-channel', 0, 'other-profile')"
+        )
+        migrated.query(
+            "SELECT COUNT(*) FROM subscriptions " +
+                "WHERE url = 'https://example.com/profile-channel'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    fun migrateDatabaseFrom25to26ScopesWatchHistoryAndProgressToDefaultProfile() {
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+        testHelper.createDatabase(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_25
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO streams " +
+                    "(uid, service_id, url, title, stream_type, duration, uploader) " +
+                    "VALUES (42, 0, 'https://example.com/history-video', " +
+                    "'History video', 'VIDEO_STREAM', 60, 'Channel')"
+            )
+            database.execSQL(
+                "INSERT INTO stream_history (stream_id, access_date, repeat_count) " +
+                    "VALUES (42, 1234, 2)"
+            )
+            database.execSQL(
+                "INSERT INTO stream_state (stream_id, progress_time) VALUES (42, 30000)"
+            )
+            database.execSQL(
+                "INSERT INTO learning_sessions " +
+                    "(session_id, stream_id, started_at, ended_at, watched_duration_ms, " +
+                    "local_date, background_playback, is_designated) " +
+                    "VALUES ('session-1', 42, 1000, 2000, 1000, '2026-09-20', 0, 1)"
+            )
+        }
+
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_26,
+            true,
+            Migrations.MIGRATION_25_26
+        )
+
+        migrated.query(
+            "SELECT profile_id, repeat_count FROM stream_history WHERE stream_id = 42"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(defaultProfileId, cursor.getString(0))
+            assertEquals(2L, cursor.getLong(1))
+        }
+        migrated.query(
+            "SELECT profile_id, progress_time FROM stream_state WHERE stream_id = 42"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(defaultProfileId, cursor.getString(0))
+            assertEquals(30_000L, cursor.getLong(1))
+        }
+
+        migrated.query(
+            "SELECT profile_id FROM learning_sessions WHERE session_id = 'session-1'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(defaultProfileId, cursor.getString(0))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO stream_state (stream_id, progress_time, profile_id) " +
+                "VALUES (42, 10000, 'other-profile')"
+        )
+        migrated.query(
+            "SELECT COUNT(*) FROM stream_state WHERE stream_id = 42"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    fun migrateDatabaseFrom26to27ScopesPlaylistsAndSavedFeedsToDefaultProfile() {
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+        testHelper.createDatabase(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_26
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO playlists " +
+                    "(uid, name, is_thumbnail_permanent, thumbnail_stream_id, display_index) " +
+                    "VALUES (5, 'Existing local', 0, -1, 0)"
+            )
+            database.execSQL(
+                "INSERT INTO remote_playlists " +
+                    "(uid, service_id, name, url, display_index) " +
+                    "VALUES (6, 0, 'Existing remote', 'https://example.com/playlist', 0)"
+            )
+            database.execSQL(
+                "INSERT INTO saved_search_feed " +
+                    "(uid, name, service_id, query, content_filter, sort_filter, sort_order) " +
+                    "VALUES (7, 'Existing search', 0, 'query', '', '', 0)"
+            )
+        }
+
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_27,
+            true,
+            Migrations.MIGRATION_26_27
+        )
+
+        listOf("playlists" to 5L, "remote_playlists" to 6L, "saved_search_feed" to 7L)
+            .forEach { (table, id) ->
+                migrated.query(
+                    "SELECT profile_id FROM $table WHERE uid = $id"
+                ).use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals(defaultProfileId, cursor.getString(0))
+                }
+            }
+
+        migrated.execSQL(
+            "INSERT INTO remote_playlists " +
+                "(service_id, name, url, display_index, profile_id) " +
+                "VALUES (0, 'Other remote', 'https://example.com/playlist', 0, 'other-profile')"
+        )
+        migrated.query(
+            "SELECT COUNT(*) FROM remote_playlists " +
+                "WHERE url = 'https://example.com/playlist'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+
+        migrated.execSQL(
+            "INSERT INTO saved_search_feed " +
+                "(name, service_id, query, content_filter, sort_filter, sort_order, profile_id) " +
+                "VALUES ('Other search', 0, 'query', '', '', 0, 'other-profile')"
+        )
+        migrated.query(
+            "SELECT COUNT(*) FROM saved_search_feed WHERE query = 'query'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    fun migrateDatabaseFrom27to28ScopesSyncJournalsToDefaultProfile() {
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+        testHelper.createDatabase(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_27
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO subscription_sync_records " +
+                    "(record_id, service_id, url, lamport_version, origin_peer_id, " +
+                    "origin_revision, is_deleted) VALUES " +
+                    "('subscription-record', 0, 'https://example.com/channel', 1, " +
+                    "'peer-a', 1, 0)"
+            )
+            database.execSQL(
+                "INSERT INTO playlist_sync_records " +
+                    "(record_id, record_type, lamport_version, origin_peer_id, " +
+                    "origin_revision, is_deleted) VALUES " +
+                    "('playlist-record', 'REMOTE_PLAYLIST', 1, 'peer-a', 1, 0)"
+            )
+            database.execSQL(
+                "INSERT INTO history_sync_records " +
+                    "(category, record_id, record_type, lamport_version, origin_peer_id, " +
+                    "origin_revision, is_deleted) VALUES " +
+                    "('WATCH', 'history-record', 'WATCH_EVENT', 1, 'peer-a', 1, 0)"
+            )
+        }
+
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_28,
+            true,
+            Migrations.MIGRATION_27_28
+        )
+
+        listOf(
+            "subscription_sync_records" to "subscription-record",
+            "playlist_sync_records" to "playlist-record",
+            "history_sync_records" to "history-record"
+        ).forEach { (table, recordId) ->
+            migrated.query(
+                "SELECT profile_id FROM $table WHERE record_id = '$recordId'"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(defaultProfileId, cursor.getString(0))
+            }
+        }
+
+        listOf(
+            "subscription_sync_changes",
+            "playlist_sync_changes",
+            "history_sync_changes"
+        ).forEach { table ->
+            migrated.query("PRAGMA table_info($table)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                var hasProfileId = false
+                while (cursor.moveToNext()) {
+                    hasProfileId = hasProfileId || cursor.getString(nameIndex) == "profile_id"
+                }
+                assertTrue(hasProfileId)
+            }
+        }
+
+        migrated.execSQL(
+            "INSERT INTO subscription_sync_records " +
+                "(record_id, profile_id, service_id, url, lamport_version, origin_peer_id, " +
+                "origin_revision, is_deleted) VALUES " +
+                "('subscription-record-work', '11111111-1111-1111-1111-111111111111', " +
+                "0, 'https://example.com/channel', 2, 'peer-b', 1, 0)"
+        )
+        migrated.query(
+            "SELECT COUNT(*) FROM subscription_sync_records " +
+                "WHERE url = 'https://example.com/channel'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    fun migrateDatabaseFrom28to29PersistsShortFormClassification() {
+        testHelper.createDatabase(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_28
+        ).use { database ->
+            database.execSQL(
+                "INSERT INTO streams " +
+                    "(uid, service_id, url, title, stream_type, duration, uploader) VALUES " +
+                    "(42, 0, 'https://www.youtube.com/shorts/abcdefghijk', " +
+                    "'Short', 'VIDEO_STREAM', 60, 'Channel')"
+            )
+            database.execSQL(
+                "INSERT INTO streams " +
+                    "(uid, service_id, url, title, stream_type, duration, uploader) VALUES " +
+                    "(43, 0, 'https://www.youtube.com/watch?v=abcdefghijk', " +
+                    "'Regular short video', 'VIDEO_STREAM', 60, 'Channel')"
+            )
+        }
+
+        val migrated = testHelper.runMigrationsAndValidate(
+            AppDatabase.DATABASE_NAME,
+            Migrations.DB_VER_29,
+            true,
+            Migrations.MIGRATION_28_29
+        )
+
+        migrated.query(
+            "SELECT uid, is_short_form_content FROM streams WHERE uid IN (42, 43) ORDER BY uid"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(42L, cursor.getLong(0))
+            assertEquals(1, cursor.getInt(1))
+            assertTrue(cursor.moveToNext())
+            assertEquals(43L, cursor.getLong(0))
+            assertEquals(0, cursor.getInt(1))
+        }
+    }
+
     private fun getMigratedDatabase(): AppDatabase {
         val database: AppDatabase = Room.databaseBuilder(
             ApplicationProvider.getApplicationContext(),
@@ -871,7 +1198,13 @@ class DatabaseMigrationTest {
                 Migrations.MIGRATION_19_20,
                 Migrations.MIGRATION_20_21,
                 Migrations.MIGRATION_21_22,
-                Migrations.MIGRATION_22_23
+                Migrations.MIGRATION_22_23,
+                Migrations.MIGRATION_23_24,
+                Migrations.MIGRATION_24_25,
+                Migrations.MIGRATION_25_26,
+                Migrations.MIGRATION_26_27,
+                Migrations.MIGRATION_27_28,
+                Migrations.MIGRATION_28_29
             )
             .build()
         testHelper.closeWhenFinished(database)

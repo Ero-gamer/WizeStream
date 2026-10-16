@@ -14,6 +14,28 @@ import java.util.Set;
 
 class ContentBlockingHelperTest {
     @Test
+    void allowedChannelOverridesKeywordAndChannelRulesButNotExplicitVideoBlocks() {
+        final var rules = ContentBlockingHelper.Rules.create(true,
+                Set.of("blocked-video"), Set.of("https://example.com/channel\tChannel"),
+                "spoiler", true, Set.of(), Set.of("0|https://example.com/channel\tChannel"));
+        assertFalse(rules.isBlocked(stream("allowed-video", "spoiler", "Channel",
+                "https://example.com/channel")));
+        assertTrue(rules.isBlocked(stream("blocked-video", "spoiler", "Channel",
+                "https://example.com/channel")));
+        assertTrue(rules.isBlocked(stream("other-video", "spoiler", "Channel",
+                "https://example.com/other-channel")));
+        assertTrue(rules.isBlocked(stream("missing-url", "spoiler", "Channel", null)));
+    }
+
+    @Test
+    void allowedChannelIsScopedToServiceAndUrl() {
+        final var rules = ContentBlockingHelper.Rules.create(true, Set.of(), Set.of(),
+                "spoiler", false, Set.of(), Set.of("1|https://example.com/channel\tChannel"));
+        assertTrue(rules.isBlocked(stream("video", "spoiler", "Channel",
+                "https://example.com/channel")));
+    }
+
+    @Test
     void blocksExactVideoUrl() {
         final ContentBlockingHelper.Rules rules = ContentBlockingHelper.Rules.create(
                 true, Set.of("https://example.com/watch/1\tVideo"), Set.of(), "");
@@ -35,6 +57,27 @@ class ContentBlockingHelperTest {
     }
 
     @Test
+    void aiListBlocksMatchingYoutubeUploaderWithoutAddingUserRule() {
+        final ContentBlockingHelper.Rules rules = ContentBlockingHelper.Rules.create(
+                true,
+                Set.of(),
+                Set.of(),
+                "",
+                Set.of("@blocked-ai-channel"));
+
+        assertTrue(rules.isBlocked(stream(
+                "video-1",
+                "Allowed title",
+                "Display name",
+                "https://www.youtube.com/@Blocked-AI-Channel/videos")));
+        assertFalse(rules.isBlocked(stream(
+                "video-2",
+                "Allowed title",
+                "Display name",
+                "https://www.youtube.com/@allowed/videos")));
+    }
+
+    @Test
     void keywordMatchingIsCaseInsensitiveAndSupportsCommaOrLineBreaks() {
         final ContentBlockingHelper.Rules rules = ContentBlockingHelper.Rules.create(
                 true, Set.of(), Set.of(), "Spoiler, clickbait\nRumor");
@@ -51,6 +94,25 @@ class ContentBlockingHelperTest {
 
         assertTrue(rules.isBlocked(stream("video-1", "A KI lesson", "Science", null)));
         assertFalse(rules.isBlocked(stream("video-2", "Allowed title", "Ki Channel", null)));
+    }
+
+    @Test
+    void channelNameKeywordMatchingIsOptIn() {
+        final ContentBlockingHelper.Rules rules = ContentBlockingHelper.Rules.create(
+                true, Set.of(), Set.of(), "drama", true, Set.of());
+
+        assertTrue(rules.isBlocked(stream(
+                "video-1", "Allowed title", "Chinese Drama Channel", null)));
+
+        final PlaylistInfoItem playlist =
+                new PlaylistInfoItem(0, "playlist-1", "Allowed list");
+        playlist.setUploaderName("Drama Network");
+        assertTrue(rules.isBlocked(playlist));
+
+        final PostInfoItem post = new PostInfoItem(0, "post-1", "Allowed post");
+        post.setUploaderName("Drama Network");
+        post.setContent("Allowed content");
+        assertTrue(rules.isBlocked(post));
     }
 
     @Test
@@ -79,6 +141,60 @@ class ContentBlockingHelperTest {
                 false, Set.of("video-1\tVideo"), Set.of(), "video");
 
         assertFalse(rules.isBlocked(stream("video-1", "Video", "Channel", null)));
+    }
+
+    @Test
+    void relatedItemsRefreshForChannelVideoAndAiListRuleChanges() {
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.RELATED_ITEMS,
+                ContentBlockingHelper.RuleChange.CHANNELS));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.RELATED_ITEMS,
+                ContentBlockingHelper.RuleChange.VIDEOS));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.RELATED_ITEMS,
+                ContentBlockingHelper.RuleChange.MEMBERS_ONLY));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.RELATED_ITEMS,
+                ContentBlockingHelper.RuleChange.AISLIST_ENABLED));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.RELATED_ITEMS,
+                ContentBlockingHelper.RuleChange.AISLIST_WARN_BEHAVIOR));
+    }
+
+    @Test
+    void commentsIgnoreRuleChangesThatCannotAffectCommentItems() {
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.CHANNELS));
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.VIDEOS));
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.KEYWORD_CHANNEL_NAMES));
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.MEMBERS_ONLY));
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.AISLIST_ENABLED));
+        assertFalse(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.AISLIST_WARN_BEHAVIOR));
+    }
+
+    @Test
+    void commentsRefreshForRulesThatCanAffectCommentVisibility() {
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.ENABLED));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.TARGETS));
+        assertTrue(ContentBlockingHelper.shouldReloadForRuleChange(
+                ContentBlockingHelper.Target.COMMENTS,
+                ContentBlockingHelper.RuleChange.KEYWORDS));
     }
 
     @Test

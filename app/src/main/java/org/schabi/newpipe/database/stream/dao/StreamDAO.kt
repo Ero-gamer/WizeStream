@@ -10,6 +10,7 @@ import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.Flowable
 import java.time.OffsetDateTime
 import org.schabi.newpipe.database.BasicDAO
+import org.schabi.newpipe.database.stream.StreamUploadDate
 import org.schabi.newpipe.database.stream.model.StreamEntity
 import org.schabi.newpipe.database.stream.model.StreamEntity.Companion.STREAM_ID
 import org.schabi.newpipe.extractor.stream.StreamType
@@ -37,21 +38,6 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
 
     @Query("UPDATE streams SET uploader_url = :uploaderUrl WHERE url = :url AND service_id = :serviceId")
     abstract fun setUploaderUrl(serviceId: Long, url: String, uploaderUrl: String): Completable
-
-    @Query(
-        """
-        UPDATE streams
-        SET upload_date = :uploadDate
-        WHERE service_id = :serviceId
-        AND url = :url
-        AND is_upload_date_approximation = 1
-        """
-    )
-    abstract fun updateApproximateUploadDate(
-        serviceId: Int,
-        url: String,
-        uploadDate: OffsetDateTime
-    ): Int
 
     @Query(
         """
@@ -92,7 +78,7 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
     @Query(
         """
         SELECT uid, stream_type, textual_upload_date, upload_date,
-        is_upload_date_approximation, duration, uploader_avatar_url
+        is_upload_date_approximation, duration, uploader_avatar_url, is_short_form_content
         FROM streams WHERE url = :url AND service_id = :serviceId
         """
     )
@@ -140,10 +126,18 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
         newerStream.uid = existentMinimalStream.uid
 
         if (!StreamTypeUtil.isLiveStream(newerStream.streamType)) {
-            // Use the existent upload date if the newer stream does not have a better precision
-            // (i.e. is an approximation). This is done to prevent unnecessary changes.
-            val hasBetterPrecision =
-                newerStream.uploadDate != null && newerStream.isUploadDateApproximation != true
+            // Preserve stable source dates and first-seen timestamps. A source-provided
+            // relative date is still better than the synthetic timestamp of an undated Short.
+            val existingDateIsSynthetic = StreamUploadDate.isSynthetic(
+                newerStream.serviceId,
+                existentMinimalStream.isUploadDateApproximation,
+                existentMinimalStream.textualUploadDate
+            )
+            val hasBetterPrecision = newerStream.uploadDate != null &&
+                (
+                    newerStream.isUploadDateApproximation != true ||
+                        (existingDateIsSynthetic && !newerStream.hasSyntheticUploadDate)
+                    )
             if (existentMinimalStream.uploadDate != null && !hasBetterPrecision) {
                 newerStream.uploadDate = existentMinimalStream.uploadDate
                 newerStream.textualUploadDate = existentMinimalStream.textualUploadDate
@@ -158,6 +152,11 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
         if (newerStream.uploaderAvatarUrl.isNullOrBlank()) {
             newerStream.uploaderAvatarUrl = existentMinimalStream.uploaderAvatarUrl
         }
+
+        // Some endpoints cannot identify Shorts reliably. Once an extractor has positively
+        // identified an item as short-form content, do not erase that information on refresh.
+        newerStream.isShortFormContent =
+            newerStream.isShortFormContent || existentMinimalStream.isShortFormContent
     }
 
     @Query(
@@ -214,6 +213,9 @@ abstract class StreamDAO : BasicDAO<StreamEntity> {
         var duration: Long,
 
         @ColumnInfo(name = StreamEntity.STREAM_UPLOADER_AVATAR_URL)
-        var uploaderAvatarUrl: String? = null
+        var uploaderAvatarUrl: String? = null,
+
+        @ColumnInfo(name = StreamEntity.STREAM_IS_SHORT_FORM_CONTENT)
+        var isShortFormContent: Boolean = false
     )
 }

@@ -42,6 +42,22 @@
         app:singleLineTitle="false"
         app:iconSpaceReserved="false" />
 
+    <SwitchPreferenceCompat
+        android:defaultValue="true"
+        android:key="@string/rounded_mini_player_key"
+        android:title="@string/rounded_mini_player_title"
+        android:summary="@string/rounded_mini_player_summary"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="@string/bottom_player_controls_key"
+        android:title="@string/bottom_player_controls_title"
+        android:summary="@string/bottom_player_controls_summary"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false" />
+
     <ListPreference
         android:defaultValue="@string/tablet_mode_auto_key"
         android:entries="@array/tablet_mode_description"
@@ -72,11 +88,59 @@
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
 
+    <ListPreference
+        android:defaultValue="@string/orientation_default_key"
+        android:entries="@array/orientation_list_view_mode_description"
+        android:entryValues="@array/orientation_list_view_mode_values"
+        android:key="@string/list_view_mode_portrait_key"
+        android:title="@string/portrait_video_layout"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="@string/orientation_default_key"
+        android:entries="@array/orientation_list_view_mode_description"
+        android:entryValues="@array/orientation_list_view_mode_values"
+        android:key="@string/list_view_mode_landscape_key"
+        android:title="@string/landscape_video_layout"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="@string/orientation_default_key"
+        android:entries="@array/orientation_grid_columns_description"
+        android:entryValues="@array/orientation_grid_columns_values"
+        android:key="@string/grid_columns_portrait_key"
+        android:title="@string/portrait_grid_columns"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="@string/orientation_default_key"
+        android:entries="@array/orientation_grid_columns_description"
+        android:entryValues="@array/orientation_grid_columns_values"
+        android:key="@string/grid_columns_landscape_key"
+        android:title="@string/landscape_grid_columns"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false"
+        app:useSimpleSummaryProvider="true" />
+
     <SwitchPreferenceCompat
         android:defaultValue="false"
         android:key="@string/show_full_grid_titles_key"
         android:summary="@string/show_full_grid_titles_summary"
         android:title="@string/show_full_grid_titles_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="@string/compact_large_screen_navigation_key"
+        android:summary="@string/compact_large_screen_navigation_summary"
+        android:title="@string/compact_large_screen_navigation_title"
         app:singleLineTitle="false"
         app:iconSpaceReserved="false" />
 
@@ -86,6 +150,46 @@
         android:entryValues="@array/comment_text_size_values"
         android:key="@string/comment_text_size_key"
         android:title="@string/comment_text_size_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="100"
+        android:entries="@array/media_text_size_description"
+        android:entryValues="@array/media_text_size_values"
+        android:key="@string/video_title_text_size_key"
+        android:title="@string/video_title_text_size_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="100"
+        android:entries="@array/media_text_size_description"
+        android:entryValues="@array/media_text_size_values"
+        android:key="@string/channel_name_text_size_key"
+        android:title="@string/channel_name_text_size_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="100"
+        android:entries="@array/media_text_size_description"
+        android:entryValues="@array/media_text_size_values"
+        android:key="@string/video_metadata_text_size_key"
+        android:title="@string/video_metadata_text_size_title"
+        app:singleLineTitle="false"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="compact"
+        android:entries="@array/tv_related_sidebar_width_description"
+        android:entryValues="@array/tv_related_sidebar_width_values"
+        android:key="@string/tv_related_sidebar_width_key"
+        android:title="@string/tv_related_sidebar_width_title"
         app:singleLineTitle="false"
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
@@ -151,4 +255,11 @@
         app:iconSpaceReserved="false"
         app:useSimpleSummaryProvider="true" />
 
+    <SwitchPreferenceCompat
+        android:key="@string/bold_media_text_key"
+        android:defaultValue="false"
+        android:title="@string/bold_media_text_title"
+        android:summary="@string/bold_media_text_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
 </PreferenceScreen>

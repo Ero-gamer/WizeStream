@@ -37,6 +37,7 @@ import org.schabi.newpipe.R
 import org.schabi.newpipe.databinding.DialogDevicePairingBinding
 import org.schabi.newpipe.sync.DeviceSyncAttempt
 import org.schabi.newpipe.sync.DeviceSyncBackgroundScheduler
+import org.schabi.newpipe.sync.DeviceSyncListenerService
 import org.schabi.newpipe.sync.DeviceSyncLogCategory
 import org.schabi.newpipe.sync.DeviceSyncLogCategoryResult
 import org.schabi.newpipe.sync.DeviceSyncLogEntry
@@ -86,10 +87,17 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
             true
         }
         backgroundSyncPreference.setOnPreferenceChangeListener { _, newValue ->
+            val enabled = newValue as Boolean
+            val hasTrustedPeers = syncManager.trustedPeers.isNotEmpty()
             DeviceSyncBackgroundScheduler.setEnabled(
                 requireContext(),
-                enabled = newValue as Boolean,
-                hasTrustedPeers = syncManager.trustedPeers.isNotEmpty()
+                enabled = enabled,
+                hasTrustedPeers = hasTrustedPeers
+            )
+            DeviceSyncListenerService.update(
+                requireContext(),
+                backgroundSyncEnabled = enabled,
+                hasTrustedPeers = hasTrustedPeers
             )
             true
         }
@@ -111,7 +119,17 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
     override fun onResume() {
         super.onResume()
         updateState()
+        DeviceSyncListenerService.startIfEnabled(requireContext())
         startListening()
+    }
+
+    override fun onPause() {
+        if (!backgroundSyncPreference.isChecked) {
+            viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                syncManager.stopListening()
+            }
+        }
+        super.onPause()
     }
 
     private fun updateState() {
@@ -358,10 +376,19 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
         return buildList {
             add(
                 syncCategory(
+                    getString(R.string.device_sync_category_profiles),
+                    attempt.profileResult?.sentChanges,
+                    attempt.profileResult?.receivedChanges,
+                    attempt.profileError
+                )
+            )
+            add(
+                syncCategory(
                     getString(R.string.device_sync_category_subscriptions),
                     attempt.result?.sentChanges,
                     attempt.result?.receivedChanges,
-                    attempt.error
+                    attempt.error,
+                    attempt.subscriptionSkipped
                 )
             )
             add(
@@ -369,7 +396,8 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
                     getString(R.string.device_sync_category_playlists),
                     attempt.playlistResult?.sentChanges,
                     attempt.playlistResult?.receivedChanges,
-                    attempt.playlistError
+                    attempt.playlistError,
+                    attempt.playlistSkipped
                 )
             )
             add(
@@ -406,7 +434,8 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
                         structuredPreferenceCategoryName(category),
                         result?.sentChanges,
                         result?.receivedChanges,
-                        attempt.structuredPreferenceErrors[category]
+                        attempt.structuredPreferenceErrors[category],
+                        category in attempt.structuredPreferenceSkipped
                     )
                 )
             }
@@ -561,7 +590,7 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
 
     private fun DeviceSyncLogCategoryResult.toDisplay(): SyncCategoryDisplay {
         val title = deviceSyncLogCategoryName(category)
-        return when (status) {
+        val display = when (status) {
             DeviceSyncLogStatus.SUCCEEDED -> SyncCategoryDisplay(
                 title,
                 SyncDisplayStatus.SUCCEEDED,
@@ -587,11 +616,18 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
                 getString(R.string.device_sync_report_disabled)
             )
         }
+        val retry = retryDiagnostic?.takeIf(String::isNotBlank) ?: return display
+        return display.copy(detail = display.detail + " · " + retry)
     }
 
     private fun deviceSyncLogCategoryName(category: DeviceSyncLogCategory): String {
         return getString(
             when (category) {
+                DeviceSyncLogCategory.LESSON_DIFFICULTY ->
+                    R.string.device_sync_category_lesson_difficulty
+
+                DeviceSyncLogCategory.PROFILES -> R.string.device_sync_category_profiles
+
                 DeviceSyncLogCategory.SUBSCRIPTIONS ->
                     R.string.device_sync_category_subscriptions
 
@@ -614,6 +650,9 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
                     R.string.device_sync_category_channel_profiles
 
                 DeviceSyncLogCategory.FILTERS -> R.string.device_sync_category_filters
+
+                DeviceSyncLogCategory.CONTENT_BLOCKING ->
+                    R.string.device_sync_category_blocked_content
 
                 DeviceSyncLogCategory.SETTINGS -> R.string.device_sync_category_settings
 
@@ -666,6 +705,9 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
     ): String {
         return getString(
             when (category) {
+                StructuredPreferenceCategory.LESSON_DIFFICULTY ->
+                    R.string.device_sync_category_lesson_difficulty
+
                 StructuredPreferenceCategory.FEED_GROUPS ->
                     R.string.device_sync_category_feed_groups
 
@@ -677,6 +719,9 @@ class DeviceSyncSettingsFragment : BasePreferenceFragment() {
 
                 StructuredPreferenceCategory.FILTERS ->
                     R.string.device_sync_category_filters
+
+                StructuredPreferenceCategory.CONTENT_BLOCKING ->
+                    R.string.device_sync_category_blocked_content
 
                 StructuredPreferenceCategory.SETTINGS ->
                     R.string.device_sync_category_settings

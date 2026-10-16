@@ -65,6 +65,19 @@ class FeedLoadService : Service() {
          */
         private const val NOTIFICATION_SAMPLING_PERIOD = 1500
 
+        fun createLoadIntent(
+            context: Context,
+            groupId: Long,
+            scope: FeedScope,
+            ignoreOutdatedThreshold: Boolean = false
+        ): Intent = Intent(context, FeedLoadService::class.java).apply {
+            putExtra(EXTRA_GROUP_ID, groupId)
+            putExtra(EXTRA_SERVICE_ID, scope.serviceId)
+            putExtra(EXTRA_YOUTUBE_MODE_MASK, scope.youtubeModeMask)
+            putExtra(EXTRA_IGNORE_OUTDATED_THRESHOLD, ignoreOutdatedThreshold)
+        }
+
+        const val EXTRA_IGNORE_OUTDATED_THRESHOLD = "FeedLoadService.EXTRA_IGNORE_OUTDATED_THRESHOLD"
         const val EXTRA_GROUP_ID: String = "FeedLoadService.EXTRA_GROUP_ID"
         const val EXTRA_SERVICE_ID: String = "FeedLoadService.EXTRA_SERVICE_ID"
         const val EXTRA_YOUTUBE_MODE_MASK: String =
@@ -103,7 +116,7 @@ class FeedLoadService : Service() {
         setupBroadcastReceiver()
 
         val groupId = intent.getLongExtra(EXTRA_GROUP_ID, FeedGroupEntity.GROUP_ALL_ID)
-        val selectedScope = FeedScope.from(this)
+        val selectedScope = FeedScope.forFeeds(this)
         feedScope = FeedScope(
             intent.getIntExtra(EXTRA_SERVICE_ID, selectedScope.serviceId),
             intent.getIntExtra(
@@ -111,7 +124,11 @@ class FeedLoadService : Service() {
                 selectedScope.youtubeModeMask
             )
         )
-        loadingDisposable = feedLoadManager.startLoading(groupId, scope = feedScope)
+        loadingDisposable = feedLoadManager.startLoading(
+            groupId,
+            ignoreOutdatedThreshold = intent.getBooleanExtra(EXTRA_IGNORE_OUTDATED_THRESHOLD, false),
+            scope = feedScope
+        )
             .observeOn(AndroidSchedulers.mainThread())
             .doOnSubscribe {
                 startForeground(NOTIFICATION_ID, notificationBuilder.build())

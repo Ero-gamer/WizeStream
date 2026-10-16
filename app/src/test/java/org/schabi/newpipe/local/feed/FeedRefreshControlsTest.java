@@ -1,6 +1,7 @@
 package org.schabi.newpipe.local.feed;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -27,92 +28,134 @@ public class FeedRefreshControlsTest {
             ? Path.of("src/main/res") : Path.of("app/src/main/res");
 
     @Test
-    public void filtersFollowTheFeedLoadingLifecycle() throws Exception {
+    public void filtersYieldTheHeaderRowToRefreshControls() throws Exception {
         final String source = readSource(
                 "org/schabi/newpipe/local/feed/FeedFragment.kt");
-
-        assertTrue(methodBody(source, "override fun showLoading()", "override fun hideLoading()")
-                .contains("streamFilterChips.root.animate(false, 0)"));
-        assertTrue(methodBody(source, "override fun hideLoading()", "override fun showEmptyState()")
-                .contains("streamFilterChips.root.animate(true, 200)"));
-        assertTrue(methodBody(source, "override fun showEmptyState()", "override fun handleResult")
-                .contains("streamFilterChips.root.animate(true, 200)"));
-        assertTrue(methodBody(
+        final String showLoading = methodBody(
+                source, "override fun showLoading()", "override fun hideLoading()");
+        final String showRefresh = methodBody(
                 source,
-                "override fun handleError()",
-                "private fun handleProgressState"
-        ).contains("streamFilterChips.root.animate(true, 200)"));
+                "private fun showRefreshProgress",
+                "private fun hideRefreshProgress");
+        final String hideRefresh = methodBody(
+                source,
+                "private fun hideRefreshProgress",
+                "private fun showInfoItemDialog");
+
+        assertFalse(showLoading.contains("refreshRootView.animate(false, 0)"));
+        assertTrue(showLoading.contains("itemsList.animate(true, 0)"));
+        assertTrue(showLoading.contains("showRefreshProgress(binding)"));
+
+        assertTrue(showRefresh.contains("streamFilterChips.root.isVisible = false"));
+        assertTrue(showRefresh.contains("refreshProgressContainer.isVisible = true"));
+        assertTrue(showRefresh.contains("cancelRefreshButton.isVisible = true"));
+
+        assertTrue(hideRefresh.contains("refreshProgressContainer.isVisible = false"));
+        assertTrue(hideRefresh.contains("cancelRefreshButton.isVisible = false"));
+        assertTrue(hideRefresh.contains("streamFilterChips.root.isVisible = true"));
     }
 
     @Test
-    public void refreshOverlayKeepsFeedVisibleBehindAThemeAwareScrim() throws Exception {
+    public void refreshProgressLivesInHeaderWithoutBlockingFeedContent() throws Exception {
         final Document document = parseLayout();
-        final Element overlay = findByAndroidId(
-                document, "@+id/refresh_loading_overlay");
-        final Element scrim = findByAndroidId(
-                document, "@+id/refresh_loading_scrim");
+        final Element progressContainer = findByAndroidId(
+                document, "@+id/refresh_progress_container");
 
-        assertNotNull(overlay);
-        assertEquals("gone", overlay.getAttributeNS(ANDROID_NAMESPACE, "visibility"));
-        assertNotNull(scrim);
-        assertEquals("0.78", scrim.getAttributeNS(ANDROID_NAMESPACE, "alpha"));
-        assertEquals("?attr/colorSurface",
-                scrim.getAttributeNS(ANDROID_NAMESPACE, "background"));
+        assertNotNull(progressContainer);
+        assertEquals("gone",
+                progressContainer.getAttributeNS(ANDROID_NAMESPACE, "visibility"));
+        assertNull(findByAndroidId(document, "@+id/refresh_loading_overlay"));
+        assertNull(findByAndroidId(document, "@+id/refresh_loading_scrim"));
+        assertNotNull(findByAndroidId(document, "@+id/items_list"));
 
         final String source = readSource(
                 "org/schabi/newpipe/local/feed/FeedFragment.kt");
-        assertTrue(methodBody(source, "override fun showLoading()", "override fun hideLoading()")
-                .contains("itemsList.animate(true, 0)"));
-        assertTrue(source.contains("refreshLoadingOverlay.animate(true, 200)"));
-        assertTrue(source.contains("refreshLoadingOverlay.animate(false, 200)"));
+        assertTrue(source.contains("showRefreshProgress(binding)"));
+        assertTrue(source.contains("hideRefreshProgress(binding)"));
+        assertFalse(source.contains("refreshLoadingOverlay.animate("));
+        assertFalse(source.contains("private var isRefreshing"));
+        assertFalse(source.contains("&& !isRefreshing"));
     }
 
     @Test
-    public void progressAndCancelControlsUsePolishedCircularSurfaces() throws Exception {
+    public void progressFiltersAndCancelShareOneCompactHeaderRow() throws Exception {
         final Document document = parseLayout();
+        final Element controlsRow = findByAndroidId(
+                document, "@+id/feed_controls_row");
+        final Element progressContainer = findByAndroidId(
+                document, "@+id/refresh_progress_container");
         final Element progress = findByAndroidId(
                 document, "@+id/loading_progress_bar");
         final Element indeterminateProgress = findByAndroidId(
                 document, "@+id/loading_indeterminate_progress_bar");
+        final Element filters = findByAndroidId(
+                document, "@+id/stream_filter_chips");
         final Element cancel = findByAndroidId(
                 document, "@+id/cancel_refresh_button");
+
+        assertNotNull(controlsRow);
+        assertEquals("LinearLayout", controlsRow.getTagName());
+        assertEquals("48dp",
+                controlsRow.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
+        assertEquals("horizontal",
+                controlsRow.getAttributeNS(ANDROID_NAMESPACE, "orientation"));
+
+        assertNotNull(progressContainer);
+        assertEquals("LinearLayout", progressContainer.getTagName());
+        assertEquals("0dp",
+                progressContainer.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
+        assertEquals("1",
+                progressContainer.getAttributeNS(ANDROID_NAMESPACE, "layout_weight"));
+        assertEquals("wrap_content",
+                progressContainer.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
+        assertEquals("gone",
+                progressContainer.getAttributeNS(ANDROID_NAMESPACE, "visibility"));
 
         assertNotNull(progress);
         assertNotNull(indeterminateProgress);
         assertEquals(
-                "org.schabi.newpipe.local.feed.FeedProgressIndicator",
+                "com.google.android.material.progressindicator.LinearProgressIndicator",
                 progress.getTagName());
-        assertEquals("104dp", progress.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
-        assertEquals("104dp", progress.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
+        assertEquals("match_parent",
+                progress.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
+        assertEquals("wrap_content",
+                progress.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
         assertEquals("polite",
                 progress.getAttributeNS(ANDROID_NAMESPACE, "accessibilityLiveRegion"));
-        assertEquals("88dp", progress.getAttributeNS(APP_NAMESPACE, "indicatorSize"));
+        assertEquals("4dp", progress.getAttributeNS(APP_NAMESPACE, "trackThickness"));
+        assertEquals("2dp", progress.getAttributeNS(APP_NAMESPACE, "trackCornerRadius"));
         assertEquals(
-                "104dp",
-                indeterminateProgress.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
-        assertEquals(
-                "104dp",
-                indeterminateProgress.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
-        assertEquals(
-                "88dp",
-                indeterminateProgress.getAttributeNS(APP_NAMESPACE, "indicatorSize"));
-        assertEquals("6dp", progress.getAttributeNS(APP_NAMESPACE, "trackThickness"));
-        assertEquals("3dp", progress.getAttributeNS(APP_NAMESPACE, "trackCornerRadius"));
+                "com.google.android.material.progressindicator.LinearProgressIndicator",
+                indeterminateProgress.getTagName());
 
-        assertNull(findByAndroidId(document, "@+id/loading_progress_text"));
+        assertNotNull(filters);
+        assertEquals("include", filters.getTagName());
+        assertEquals("0dp",
+                filters.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
+        assertEquals("1",
+                filters.getAttributeNS(ANDROID_NAMESPACE, "layout_weight"));
 
         assertNotNull(cancel);
-        assertEquals(
-                "com.google.android.material.floatingactionbutton.FloatingActionButton",
-                cancel.getTagName());
-        assertEquals("bottom|center_horizontal",
-                cancel.getAttributeNS(ANDROID_NAMESPACE, "layout_gravity"));
-        assertEquals("56dp",
-                cancel.getAttributeNS(ANDROID_NAMESPACE, "layout_marginBottom"));
+        assertEquals("ImageButton", cancel.getTagName());
+        assertEquals("48dp", cancel.getAttributeNS(ANDROID_NAMESPACE, "layout_width"));
+        assertEquals("48dp", cancel.getAttributeNS(ANDROID_NAMESPACE, "layout_height"));
+        assertEquals("gone",
+                cancel.getAttributeNS(ANDROID_NAMESPACE, "visibility"));
+        assertEquals("?attr/selectableItemBackgroundBorderless",
+                cancel.getAttributeNS(ANDROID_NAMESPACE, "background"));
         assertEquals("@string/cancel_refresh",
                 cancel.getAttributeNS(ANDROID_NAMESPACE, "contentDescription"));
         assertEquals("@drawable/ic_close",
-                cancel.getAttributeNS(APP_NAMESPACE, "srcCompat"));
+                cancel.getAttributeNS(ANDROID_NAMESPACE, "src"));
+
+        assertTrue(progressContainer.getParentNode() == controlsRow);
+        assertTrue(filters.getParentNode() == controlsRow);
+        assertTrue(cancel.getParentNode() == controlsRow);
+
+        final String source = readSource(
+                "org/schabi/newpipe/local/feed/FeedFragment.kt");
+        assertTrue(source.contains("streamFilterChips.root.isVisible = false"));
+        assertTrue(source.contains("streamFilterChips.root.isVisible = true"));
     }
 
     @Test
@@ -166,11 +209,16 @@ public class FeedRefreshControlsTest {
                 "override fun onDestroyView()",
                 "// Handling"
         ).contains("unregisterOnSharedPreferenceChangeListener(onSettingsChangeListener)"));
-        assertTrue(methodBody(
+        final String filteredItems = methodBody(
                 source,
                 "private fun showFilteredFeedItems",
-                "override fun setContextualSearchQuery"
-        ).contains("if (_feedBinding == null)"));
+                "override fun setContextualSearchQuery");
+        assertTrue(filteredItems.contains("if (_feedBinding == null)"));
+        assertTrue(filteredItems.contains("item.copy(itemVersion = itemVersion)"));
+        assertTrue(filteredItems.contains("displayItem.execBindEnd = item.execBindEnd"));
+        assertTrue(filteredItems.contains(
+                "displayItem.onUploaderSelected = ::openUploaderChannel"));
+        assertFalse(filteredItems.contains("it.itemVersion = itemVersion"));
     }
 
     private String readSource(final String relativePath) throws Exception {

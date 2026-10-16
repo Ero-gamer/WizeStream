@@ -102,25 +102,75 @@ class VideoAdjustmentLifecycleTest {
                 }
                 instrumentation.waitForIdleSync()
                 scenario.onActivity { originalOrder = queue.streams.toList() }
-                for (action in listOf("enable", "disable", "enable", "failure")) {
-                    ready.set(CountDownLatch(1))
+                val actions = buildList {
+                    add("enable")
+                    repeat(8) {
+                        add("disable")
+                        add("enable")
+                    }
+                    add("failure")
+                }
+                var preparedPlayer: androidx.media3.exoplayer.ExoPlayer? = null
+                var preparedTrackSelector: Any? = null
+                var preparedLoadController: Any? = null
+                for ((index, action) in actions.withIndex()) {
+                    val expectedPosition = 500L + index * 150L
+                    val expectsRebuild = action == "enable" && preparedPlayer == null ||
+                        action == "failure"
+                    if (expectsRebuild) {
+                        ready.set(CountDownLatch(1))
+                    }
                     scenario.onActivity {
                         val active = player!!
+                        active.exoPlayer.seekTo(expectedPosition)
                         val before = active.exoPlayer
+                        val beforeTrackSelector = active.trackSelector
+                        val beforeLoadController = active.loadController
                         if (action == "failure") {
-                            active.onPlayerError(PlaybackException("Injected GPU failure", null, PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED))
+                            active.onPlayerError(
+                                PlaybackException(
+                                    "Injected GPU failure",
+                                    null,
+                                    PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
+                                )
+                            )
                         } else {
-                            active.videoAdjustments.update(VideoAdjustmentState(enabled = action == "enable", saturation = 0))
+                            active.videoAdjustments.update(
+                                VideoAdjustmentState(
+                                    enabled = action == "enable",
+                                    saturation = 0
+                                )
+                            )
                         }
-                        assertNotSame(before, active.exoPlayer)
+
+                        if (expectsRebuild) {
+                            assertNotSame(before, active.exoPlayer)
+                            assertNotSame(beforeTrackSelector, active.trackSelector)
+                            assertNotSame(beforeLoadController, active.loadController)
+                        } else {
+                            assertSame(preparedPlayer, active.exoPlayer)
+                            assertSame(preparedTrackSelector, active.trackSelector)
+                            assertSame(preparedLoadController, active.loadController)
+                        }
+
+                        if (preparedPlayer == null && action == "enable") {
+                            preparedPlayer = active.exoPlayer
+                            preparedTrackSelector = active.trackSelector
+                            preparedLoadController = active.loadController
+                        }
                     }
-                    assertTrue("Playback did not recover after $action", ready.get().await(20, TimeUnit.SECONDS))
+                    if (expectsRebuild) {
+                        assertTrue(
+                            "Playback did not recover after $action",
+                            ready.get().await(20, TimeUnit.SECONDS)
+                        )
+                    }
                     scenario.onActivity {
                         val active = player!!
                         assertSame(queue, active.playQueue)
                         assertEquals(originalOrder, queue.streams)
                         assertEquals("Second", queue.item!!.title)
-                        assertEquals(1500L, active.exoPlayer.currentPosition)
+                        assertEquals(expectedPosition, active.exoPlayer.currentPosition)
                         assertFalse(active.exoPlayer.playWhenReady)
                         assertEquals(1.25f, active.exoPlayer.playbackParameters.speed)
                         assertEquals(1.1f, active.exoPlayer.playbackParameters.pitch)

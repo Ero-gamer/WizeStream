@@ -41,7 +41,7 @@ jobs:
   build-and-test-jvm:
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -62,14 +62,52 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Install Android SDK platform and build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
+
       - name: Verify source-inspection tests do not grow
         run: python3 scripts/check-source-inspection-tests.py "$(git rev-parse HEAD^)"
+
+      - name: Verify Room schema bumps app version
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          python3 scripts/check-database-version-bump.py "origin/$BASE_REF"
 
       - name: Verify bundled changelog
         run: python3 scripts/generate-changelog.py --check
 
       - name: Build debug APK and run JVM tests
-        run: ./gradlew assembleDebug lintDebug testDebugUnitTest --stacktrace -DskipFormatKtlint
+        run: >-
+          ./gradlew assembleDebug lintDebug testDebugUnitTest --stacktrace -DskipFormatKtlint
+          --max-workers=2
+          '-Dorg.gradle.jvmargs=-Xmx4096M --add-opens jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED'
+
+      - name: Commit generated Room schema
+        if: always() && github.event_name == 'pull_request'
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          DB_VERSION="$(grep -E 'const val DB_VER_CURRENT = DB_VER_[0-9]+'             app/src/main/java/org/schabi/newpipe/database/Migrations.kt             | sed -E 's/.*DB_VER_([0-9]+).*/\1/')"
+          SCHEMA_DIR="app/schemas/org.schabi.newpipe.database.AppDatabase"
+          SCHEMA="$SCHEMA_DIR/$DB_VERSION.json"
+          TEMP_SCHEMA="$RUNNER_TEMP/$DB_VERSION.json"
+          if [ -n "$DB_VERSION" ] && [ -f "$SCHEMA" ]; then
+            cp "$SCHEMA" "$TEMP_SCHEMA"
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+            cp "$TEMP_SCHEMA" "$SCHEMA"
+            if [ -n "$(git status --porcelain -- "$SCHEMA")" ]; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add "$SCHEMA"
+              git commit -m "Add Room schema $DB_VERSION"
+              git push origin HEAD:"$BRANCH"
+            fi
+          fi
 
       - name: Upload lint report when checks fail
         uses: actions/upload-artifact@v7
@@ -78,6 +116,12 @@ jobs:
           name: lint-report
           path: app/build/reports/lint-results-debug.*
           if-no-files-found: ignore
+
+      - name: Verify 16 KB native-library compatibility
+        run: |
+          APK_PATH="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
+          test -n "$APK_PATH"
+          python3 scripts/check_android_16kb_elf.py "$APK_PATH"
 
       - name: Verify debug APK identity
         run: |
@@ -112,7 +156,7 @@ jobs:
             # The API 28 quick-boot snapshot can lose package/activity services after resuming.
             extra-emulator-options: -no-snapshot-load
             # Exercise the legacy copy-toast path on the Android version reported in #522.
-            test-options: -Pandroid.testInstrumentationRunnerArguments.class=org.schabi.newpipe.util.LegacyTextSelectionThemeTest
+            test-options: -Pandroid.testInstrumentationRunnerArguments.class=org.schabi.newpipe.util.LegacyTextSelectionThemeTest,org.schabi.newpipe.sync.ProfileSyncIdentityCompatibilityTest,org.schabi.newpipe.player.video.VideoAdjustmentLifecycleTest,org.schabi.newpipe.player.video.VideoAdjustmentPlaybackTest,org.schabi.newpipe.player.pip.NativePipPlaybackTest
           - api-level: 35
             target: default
             arch: x86_64
@@ -129,6 +173,10 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+
+      - name: Install Android SDK platform and build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;36.1.0"
 
       - name: Enable KVM
         run: |
@@ -165,7 +213,15 @@ jobs:
           arch: ${{ matrix.arch }}
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none ${{ matrix.extra-emulator-options }}
-          script: scripts/build.sh connected ${{ matrix.test-options }}
+          script: bash scripts/connected-tests-with-previews.sh ${{ matrix.test-options }}
+
+      - name: Upload player layout previews
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: player-layout-previews-api${{ matrix.api-level }}
+          path: ${{ runner.temp }}/player-layout-previews/*.png
+          if-no-files-found: ignore
 
       - name: Upload test report when tests fail
         uses: actions/upload-artifact@v7

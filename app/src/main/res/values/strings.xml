@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
+    <string name="history_portability_title">Import and export history</string>
+    <string name="history_portability_summary">Watch history uses the profile selected when you open the file picker. Search history is shared across profiles. JSON imports merge without deleting existing entries or adding duplicates. CSV is for reading in a spreadsheet. Local media files and their access permissions are not transferred.</string>
+    <string name="history_export_json">Export history as JSON</string>
+    <string name="history_export_csv">Export history as CSV</string>
+    <string name="history_import_json">Merge history from JSON</string>
+    <string name="history_transfer_running">Processing history…</string>
+    <string name="history_transfer_complete">Done: %1$d entries exported or added.</string>
+    <string name="history_transfer_failed">History operation failed: %1$s</string>
+
     <string name="main_bg_subtitle">Tap the magnifying glass to get started.</string>
     <string name="upload_date_text">Published on %1$s</string>
     <string name="no_player_found">No stream player found. Install VLC?</string>
@@ -16,6 +25,16 @@
     <string name="settings_category_learning_title">Learning Mode</string>
     <string name="settings_category_learning_summary">Optional notes, progress, dashboard, and study statistics</string>
     <string name="learning_mode_key" translatable="false">learning_mode_enabled</string>
+    <string name="learning_profile_included_key" translatable="false">learning_profile_included</string>
+    <string name="learning_reminders_key" translatable="false">learning_daily_reminders</string>
+    <string name="learning_reminder_time_key" translatable="false">learning_daily_reminder_time</string>
+    <string name="learning_profile_included_title">Include this profile in Learning</string>
+    <string name="learning_profile_included_summary">Allow Learning tools and streak tracking for %1$s when Learning Mode is enabled</string>
+    <string name="learning_reminders_title">Daily learning reminder</string>
+    <string name="learning_reminders_summary">Remind this profile to watch or review a lesson each day when it has learning playlists, regardless of time already studied. Android may delay reminders to save battery.</string>
+    <string name="learning_reminder_time_title">Reminder time</string>
+    <string name="learning_reminder_notification_title">Continue learning · %1$s</string>
+    <string name="learning_reminder_notification_text">Take a moment to watch or review a lesson today. Tap to open Learning.</string>
     <string name="learning_notes_key" translatable="false">learning_notes_enabled</string>
     <string name="learning_playlist_progress_key" translatable="false">learning_playlist_progress_enabled</string>
     <string name="learning_count_background_key" translatable="false">learning_count_background_playback</string>
@@ -211,6 +230,7 @@
     <string name="theme_color_neutral_title">Neutral</string>
     <string name="theme_color_green_title">Green</string>
     <string name="theme_color_blue_title">Blue</string>
+    <string name="theme_color_cyan_title">Cyan</string>
     <string name="theme_color_purple_title">Purple</string>
     <string name="theme_color_orange_title">Orange</string>
     <string name="theme_color_pink_title">Pink</string>
@@ -287,6 +307,13 @@
     <string name="resume_on_audio_focus_gain_title">Resume playing</string>
     <string name="resume_on_audio_focus_gain_summary">Continue playing after interruptions (e.g. phonecalls)</string>
     <string name="download_dialog_title">Download</string>
+    <string name="playback_dimming_title">Dim screen during playback</string>
+    <string name="playback_dimming_summary">Blank the fullscreen picture after inactivity while audio keeps playing. Tap the screen or press a remote key to wake it.</string>
+    <string name="playback_dimming_delay_title">Screen dimming delay</string>
+    <string name="playback_dimming_one_minute">1 minute</string>
+    <string name="playback_dimming_five_minutes">5 minutes</string>
+    <string name="playback_dimming_ten_minutes">10 minutes</string>
+    <string name="playback_dimming_wake">Screen dimmed. Activate to restore the picture.</string>
     <string name="start_main_player_fullscreen_title">Start main player in fullscreen</string>
     <string name="start_main_player_fullscreen_summary">Do not start videos in the mini player, but turn to fullscreen mode directly, if auto rotation is locked. You can still access the mini player by exiting fullscreen</string>
     <string name="autoplay_title">Autoplay</string>
@@ -302,6 +329,9 @@
     <string name="peertube_instance_add_title">Add instance</string>
     <string name="peertube_instance_add_help">Enter instance URL</string>
     <string name="peertube_instance_add_fail">Could not validate instance</string>
+    <string name="peertube_instance_add_network_fail">Could not connect to this instance</string>
+    <string name="peertube_instance_add_tls_fail">Could not establish a secure connection to this instance</string>
+    <string name="peertube_instance_add_invalid_url">Enter a valid PeerTube HTTPS URL</string>
     <string name="peertube_instance_add_https_only">Only HTTPS URLs are supported</string>
     <string name="peertube_instance_add_exists">Instance already exists</string>
     <string name="settings_category_player_title">Player</string>
@@ -360,7 +390,11 @@
     <string name="device_sync_log_copied">Synchronization log copied</string>
     <string name="device_sync_log_clear">Clear log</string>
     <string name="device_sync_background_title">Automatic background synchronization</string>
-    <string name="device_sync_background_summary">About once per hour, when this device has sufficient battery and is connected to the same Wi-Fi or Ethernet network as a trusted device</string>
+    <string name="device_sync_background_summary">Keep this device reachable for trusted devices and attempt synchronization about once per hour on local Wi-Fi or Ethernet. A low-priority notification is shown while listening.</string>
+    <string name="device_sync_listener_channel_name">Device synchronization</string>
+    <string name="device_sync_listener_channel_description">Keeps paired devices reachable for local background synchronization</string>
+    <string name="device_sync_listener_notification_title">Device sync is ready</string>
+    <string name="device_sync_listener_notification_text">Listening for trusted WizeStream devices on the local network</string>
     <string name="device_sync_sync_in_progress">Synchronizing data…</string>
     <string name="device_sync_sync_complete_title">Synchronization complete</string>
     <string name="device_sync_report_overview">Overview</string>
@@ -371,6 +405,7 @@
     <string name="device_sync_report_disabled">Disabled on this device</string>
     <string name="device_sync_sync_peer_succeeded">%1$s — sent %2$d, received %3$d</string>
     <string name="device_sync_sync_peer_failed">%1$s — failed: %2$s</string>
+    <string name="device_sync_category_profiles">Profiles</string>
     <string name="device_sync_category_subscriptions">Subscriptions</string>
     <string name="device_sync_category_playlists">Playlists</string>
     <string name="device_sync_category_watch_history">Watch history and playback progress</string>
@@ -380,8 +415,22 @@
     <string name="device_sync_category_home_tabs">Home tabs</string>
     <string name="device_sync_category_channel_profiles">Channel playback profiles</string>
     <string name="device_sync_category_filters">Content filter selections</string>
+    <string name="device_sync_category_blocked_content">Blocked content</string>
     <string name="device_sync_category_settings">Allowlisted settings</string>
     <string name="device_sync_category_completed_downloads">Completed download metadata</string>
+    <string name="device_sync_categories_title">Sync categories</string>
+    <string name="device_sync_profiles_required_summary">Required so synchronized data stays assigned to the correct profile.</string>
+    <string name="device_sync_watch_history_summary">Synchronizes only when watch history is enabled in History settings.</string>
+    <string name="device_sync_subscriptions_key" translatable="false">device_sync_subscriptions</string>
+    <string name="device_sync_playlists_key" translatable="false">device_sync_playlists</string>
+    <string name="device_sync_watch_history_key" translatable="false">device_sync_watch_history</string>
+    <string name="device_sync_feed_groups_key" translatable="false">device_sync_feed_groups</string>
+    <string name="device_sync_home_tabs_key" translatable="false">device_sync_home_tabs</string>
+    <string name="device_sync_channel_profiles_key" translatable="false">device_sync_channel_profiles</string>
+    <string name="device_sync_filters_key" translatable="false">device_sync_filters</string>
+    <string name="device_sync_content_blocking_key" translatable="false">device_sync_content_blocking</string>
+    <string name="device_sync_settings_key" translatable="false">device_sync_settings</string>
+    <string name="device_sync_completed_downloads_key" translatable="false">device_sync_completed_downloads</string>
     <string name="device_sync_search_history_title">Synchronize search history</string>
     <string name="device_sync_search_history_summary">Private by default. Enable to exchange search history with trusted devices; the other device must also enable it.</string>
     <string name="device_sync_sync_failed">Synchronization failed</string>
@@ -413,9 +462,19 @@
     <string name="blocked_videos_key" translatable="false">blocked_videos</string>
     <string name="blocked_channels_key" translatable="false">blocked_channels</string>
     <string name="blocked_keywords_key" translatable="false">blocked_keywords</string>
+    <string name="blocked_keywords_channel_names_key" translatable="false">blocked_keywords_channel_names</string>
     <string name="manage_blocked_channels_key" translatable="false">manage_blocked_channels</string>
     <string name="manage_blocked_videos_key" translatable="false">manage_blocked_videos</string>
     <string name="clear_blocked_content_key" translatable="false">clear_blocked_content</string>
+    <string name="aislist_enabled_key" translatable="false">aislist_enabled</string>
+    <string name="aislist_update_key" translatable="false">aislist_update</string>
+    <string name="aislist_status_key" translatable="false">aislist_status</string>
+    <string name="aislist_about_key" translatable="false">aislist_about</string>
+    <string name="aislist_warn_behavior_key" translatable="false">aislist_warn_behavior</string>
+    <string name="aislist_warn_behavior_ignore_value" translatable="false">ignore</string>
+    <string name="aislist_warn_behavior_label_value" translatable="false">label</string>
+    <string name="aislist_warn_behavior_warn_value" translatable="false">warn</string>
+    <string name="aislist_warn_behavior_hide_value" translatable="false">hide</string>
     <string name="content_blocking_title">Blocked content</string>
     <string name="content_blocking_summary">Hide videos, channels, and posts using your blocking rules</string>
     <string name="content_blocking_enabled_title">Enable content blocking</string>
@@ -429,7 +488,41 @@
     <string name="content_blocking_target_subscriptions">Subscriptions and channel groups</string>
     <string name="content_blocking_target_remote_playlists">Remote playlists</string>
     <string name="content_blocking_target_comments">Comments</string>
+    <string name="aislist_category_title">AiSList</string>
+    <string name="aislist_enabled_title">Enable AiSList filtering</string>
+    <string name="aislist_enabled_summary">Download the AiSList blocklist and warnlist directly from upstream and apply matching entirely on-device</string>
+    <string name="aislist_warn_behavior_title">Warnlist behavior</string>
+    <string name="aislist_warn_behavior_summary">Choose how medium-confidence AiSList channels are handled</string>
+    <string-array name="aislist_warn_behavior_entries">
+        <item>Ignore</item>
+        <item>Label only</item>
+        <item>Warn before playback</item>
+        <item>Hide</item>
+    </string-array>
+    <string-array name="aislist_warn_behavior_values">
+        <item>@string/aislist_warn_behavior_ignore_value</item>
+        <item>@string/aislist_warn_behavior_label_value</item>
+        <item>@string/aislist_warn_behavior_warn_value</item>
+        <item>@string/aislist_warn_behavior_hide_value</item>
+    </string-array>
+    <string name="aislist_update_title">Update AiSList now</string>
+    <string name="aislist_update_summary">Refresh the locally cached blocklist</string>
+    <string name="aislist_status_title">AiSList status</string>
+    <string name="aislist_not_downloaded">Not downloaded yet</string>
+    <string name="aislist_status_format">%1$d blocked • %2$d warning • Updated %3$s</string>
+    <string name="aislist_updating">Updating…</string>
+    <string name="aislist_updated">AiSList updated: %1$d blocked, %2$d warning</string>
+    <string name="aislist_update_failed">Could not update AiSList</string>
+    <string name="aislist_about_title">About AiSList</string>
+    <string name="aislist_about_summary">Community-maintained by Override92 and contributors • CC BY-NC 4.0</string>
+    <string name="aislist_possible_ai_badge">Possible AI</string>
+    <string name="aislist_possible_ai_title">Possible AI-generated content</string>
+    <string name="aislist_warnlist_channel_fallback">This channel</string>
+    <string name="aislist_warnlist_playback_message">%1$s appears on the AiSList community warnlist as possibly using AI-generated content.</string>
+    <string name="aislist_play_anyway">Play anyway</string>
     <string name="blocked_keywords_title">Blocked keywords</string>
+    <string name="blocked_keywords_channel_names_title">Also match channel names</string>
+    <string name="blocked_keywords_channel_names_summary">Apply blocked keywords to uploader and channel names as well as content titles</string>
     <string name="manage_blocked_channels_title">Blocked channels</string>
     <string name="manage_blocked_videos_title">Blocked videos</string>
     <string name="clear_blocked_content_title">Clear all blocking rules</string>
@@ -505,11 +598,11 @@
     <string name="import_data_title">Import full backup</string>
     <string name="import_compatible_data_key" translatable="false">import_compatible_data</string>
     <string name="import_compatible_data_title">Import from NewPipe or compatible app</string>
-    <string name="import_compatible_data_summary">Merge subscriptions, watch history, playback positions, local playlists, compatible settings, and PipePipe SponsorBlock settings from a NewPipe-style ZIP backup without replacing existing WizeStream data.</string>
+    <string name="import_compatible_data_summary">Merge subscriptions, watch history, playback positions, and local playlists from a NewPipe-style ZIP backup into the active profile without replacing existing WizeStream data. Compatible settings and PipePipe SponsorBlock settings remain app-wide.</string>
     <string name="export_data_title">Export full backup</string>
     <string name="export_compatible_data_key" translatable="false">export_compatible_data</string>
     <string name="export_compatible_data_title">Export for NewPipe</string>
-    <string name="export_compatible_data_summary">Create a NewPipe-compatible ZIP containing subscriptions and channel groups, local and bookmarked playlists, watch and search history, and playback positions. WizeStream settings and app-specific data are excluded.</string>
+    <string name="export_compatible_data_summary">Create a NewPipe-compatible ZIP from the active profile containing subscriptions and channel groups, local and bookmarked playlists, watch history, playback positions, and the app-wide search history. WizeStream settings and app-specific data are excluded.</string>
     <string name="export_compatible_data_complete_title">NewPipe backup exported</string>
     <string name="export_compatible_data_complete_message">Exported %1$d subscriptions, %8$d channel groups with %9$d memberships, %5$d local playlists with %7$d videos, %6$d bookmarked playlists, %2$d watched items, %10$d searches, and %3$d playback positions. Skipped %4$d records that NewPipe cannot use. Import this ZIP using NewPipe’s backup restore screen.</string>
     <string name="clear_cookie_title">Clear reCAPTCHA cookies</string>
@@ -518,7 +611,7 @@
     <string name="export_data_summary">Create a ZIP backup with subscriptions, playlists, app settings, SponsorBlock settings, and local data.</string>
     <string name="clear_cookie_summary">Clear cookies that WizeStream stores when you solve a reCAPTCHA</string>
     <string name="full_backup_includes_title">What full backup includes</string>
-    <string name="full_backup_includes_summary">Full backup includes subscriptions, playlists, app settings, SponsorBlock settings, and local data.</string>
+    <string name="full_backup_includes_summary">Full backup preserves all local profiles and their subscriptions, playlists, history, app settings, SponsorBlock settings, and other local data.</string>
     <string name="import_full_backup_title">Import full backup?</string>
     <string name="import_full_backup_button">Import</string>
     <string name="import_full_backup_detected_contents">Detected contents: %s</string>
@@ -547,6 +640,8 @@
     <string name="clear_views_history_title">Clear watch history</string>
     <string name="clear_views_history_summary">Deletes the history of played streams and the playback positions</string>
     <string name="delete_view_history_alert">Delete entire watch history?</string>
+    <string name="delete_watch_history_warning">This permanently deletes watch history and playback positions for the current profile. This cannot be undone.</string>
+    <string name="delete_item_watch_history">Delete this video from watch history and remove its saved playback position? This cannot be undone.</string>
     <string name="watch_history_deleted">Watch history deleted</string>
     <string name="clear_playback_states_title">Delete playback positions</string>
     <string name="clear_playback_states_summary">Deletes all playback positions</string>
@@ -555,12 +650,13 @@
     <string name="clear_search_history_title">Clear search history</string>
     <string name="clear_search_history_summary">Deletes history of search keywords</string>
     <string name="delete_search_history_alert">Delete entire search history?</string>
+    <string name="delete_search_history_warning">This permanently deletes search history for all services and profiles. This cannot be undone.</string>
     <string name="search_history_deleted">Search history deleted</string>
     <string name="fast_mode">Fast mode</string>
     <string name="main_tabs_position_summary">Move main tab selector to the bottom</string>
     <string name="main_tabs_position_title">Main tabs position</string>
-    <string name="tablet_navigation_portrait_position_title">Tablet navigation in portrait</string>
-    <string name="tablet_navigation_landscape_position_title">Tablet navigation in landscape</string>
+    <string name="tablet_navigation_portrait_position_title">Large-screen navigation in portrait</string>
+    <string name="tablet_navigation_landscape_position_title">Large-screen navigation in landscape</string>
     <string name="tablet_navigation_position_automatic">Automatic</string>
     <string name="tablet_navigation_position_bottom">Bottom</string>
     <string name="tablet_navigation_position_left">Left</string>
@@ -568,6 +664,8 @@
     <string name="bottom_navigation_labels_always">Always visible</string>
     <string name="bottom_navigation_labels_active">Active only</string>
     <string name="bottom_navigation_labels_hidden">Hidden</string>
+    <string name="compact_large_screen_navigation_title">Compact large-screen navigation</string>
+    <string name="compact_large_screen_navigation_summary">Use a narrower side navigation rail and shorter top bar on tablets and TVs</string>
     <!-- error strings -->
     <string name="general_error">Error</string>
     <string name="download_to_sdcard_error_title">External storage unavailable</string>
@@ -626,6 +724,7 @@
     <string name="description_tab_description">Description</string>
     <string name="search_no_results">No results</string>
     <string name="empty_list_subtitle">Nothing here but crickets</string>
+    <string name="empty_list_message">No items to show</string>
     <string name="import_subscriptions_hint">Import or export subscriptions from the 3-dot menu</string>
     <string name="detail_drag_description">Drag to reorder</string>
     <string name="video">Video</string>
@@ -723,6 +822,10 @@
     <string name="contribution_title">Contribute to WizeStream</string>
     <string name="contribution_encouragement">Report issues, review code, or contribute to the WizeStream fork on GitHub.</string>
     <string name="view_on_github">View on GitHub</string>
+    <string name="github_star_prompt_title">Enjoying WizeStream?</string>
+    <string name="github_star_prompt_message">If WizeStream is useful to you, consider giving the project a star on GitHub. It helps others discover the project. WizeStream does not sign you in or track whether you star it.</string>
+    <string name="github_star_prompt_action">Star on GitHub</string>
+    <string name="github_star_prompt_never">Don’t ask again</string>
     <string name="website_title">Website</string>
     <string name="website_encouragement">Visit the WizeStream Website for more info and news.</string>
     <string name="privacy_policy_title">WizeStream\'s Privacy Policy</string>
@@ -847,6 +950,7 @@
     <string name="unset_playlist_thumbnail">Unset permanent thumbnail</string>
     <string name="bookmark_playlist">Bookmark Playlist</string>
     <string name="unbookmark_playlist">Remove Bookmark</string>
+    <string name="delete_playlist">Delete playlist</string>
     <string name="delete_playlist_prompt">Delete this playlist\?</string>
     <string name="playlist_creation_success">Playlist created</string>
     <string name="playlist_add_stream_success">Playlisted</string>
@@ -925,6 +1029,7 @@
     <string name="playback_pitch">Pitch</string>
     <string name="unhook_checkbox">Unhook (may cause distortion)</string>
     <string name="skip_silence_checkbox">Fast-forward during silence</string>
+    <string name="skip_silence_unavailable_live">Fast-forward during silence (unavailable during live streams)</string>
     <string name="playback_step">Step</string>
     <string name="playback_reset">Reset</string>
     <string name="percent">Percent</string>
@@ -990,6 +1095,9 @@
     <string name="grid_columns_two">2 columns</string>
     <string name="grid_columns_three">3 columns</string>
     <string name="grid_columns_four">4 columns</string>
+    <string name="grid_columns_five">5 columns</string>
+    <string name="grid_columns_six">6 columns</string>
+    <string name="grid_columns_seven">7 columns</string>
     <string name="show_full_grid_titles_title">Show full video titles</string>
     <string name="show_full_grid_titles_summary">Display complete titles in grids and while watching videos</string>
     <string name="comment_text_size_title">Comment text size</string>
@@ -1003,6 +1111,7 @@
     <string name="grid">Grid</string>
     <string name="card">Card</string>
     <string name="auto">Auto</string>
+    <string name="grid_columns">Grid columns</string>
     <!-- Seekbar Preview Thumbnail-->
     <string name="seekbar_preview_thumbnail_title">Seekbar thumbnail preview</string>
     <string name="high_quality_larger">High quality (larger)</string>
@@ -1166,6 +1275,9 @@
     <string name="feed_groups_header_title">Channel groups</string>
     <string name="feed_oldest_subscription_update">Feed last updated: %s</string>
     <string name="feed_subscription_not_loaded_count">Not loaded: %d</string>
+    <string name="feed_subscription_not_loaded_count_details">Not loaded: %d · Tap for details</string>
+    <string name="feed_not_loaded_details_title">Subscriptions not loaded</string>
+    <string name="feed_not_loaded_details_unavailable">The feed reported subscriptions that were not loaded, but no channel details are available for this refresh.</string>
     <string name="feed_notification_loading">Loading feed…</string>
     <string name="cancel_refresh">Cancel refresh</string>
     <string name="feed_processing_message">Processing feed…</string>
@@ -1190,7 +1302,7 @@
     <string name="feed_group_show_only_ungrouped_subscriptions">Show only ungrouped subscriptions</string>
     <string name="settings_category_feed_title">Feed</string>
     <string name="feed_update_threshold_title">Feed update threshold</string>
-    <string name="feed_update_threshold_summary">Time after last update before a subscription is considered outdated — %s</string>
+    <string name="feed_update_threshold_summary">Minimum time between normal refreshes of each subscription — %s. This does not schedule automatic updates. Use “Refresh all now” in the feed menu to bypass the wait.</string>
     <string name="feed_update_threshold_option_always_update">Always update</string>
     <string name="feed_load_error">Error loading feed</string>
     <string name="feed_load_error_account_info">Could not load feed for \'%s\'.</string>
@@ -1386,9 +1498,6 @@
     <string name="sign_in_confirm_not_bot_error">%1$s refused to provide data, asking for a login to confirm the requester is not a bot.\n\nYour IP might have been temporarily banned by %1$s, you can wait some time or switch to a different IP (for example by turning on/off a VPN, or by switching from WiFi to mobile data).\n\nPlease see <a href="%2$s">this FAQ entry</a> for more information.</string>
     <string name="service_temporary_block">%1$s temporarily blocked requests from this network. Wait and try again, or switch to another network.</string>
     <string name="unsupported_content_in_country">This content is not available for the currently selected content country.\n\nChange your selection from \"Settings > Content > Default content country\".</string>
-    <string name="kao_dialog_warning">In August 2025, Google announced that as of September 2026, installing apps will require developer verification for all Android apps on certified devices, including those installed outside of the Play Store. Since the developers of WizeStream do not agree to this requirement, WizeStream will no longer work on certified Android devices after that time.</string>
-    <string name="kao_dialog_more_info">Details</string>
-    <string name="kao_solution">Solution</string>
     <string name="api23_requirement_dialog_title">WizeStream is dropping support for Android 5</string>
     <string name="api23_requirement_dialog_message">Unfortunately WizeStream depends on a few libraries that dropped support for Android 5.0 and 5.1. The next WizeStream release will therefore only work on devices with Android 6 or higher, sadly. Read more in the blogpost.</string>
     <string name="api23_requirement_dialog_blogpost">Blogpost</string>
@@ -1563,6 +1672,29 @@
     <string name="local_media_audio_channels">%1$d channels</string>
     <string name="local_media_audio_bitrate">%1$d kbps</string>
 
+    <string name="local_media_settings_summary">Control local library exclusions and on-device media behavior</string>
+    <string name="local_media_group_all_by_folder_key" translatable="false">local_media_group_all_by_folder</string>
+    <string name="local_media_group_all_by_folder_title">Group All media by folder</string>
+    <string name="local_media_group_all_by_folder_summary">Show audio and video together in filesystem folders in the All view</string>
+    <plurals name="local_media_item_count">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+    <string name="local_media_ignore_item">Ignore this media</string>
+    <string name="local_media_ignore_folder">Ignore this folder</string>
+    <string name="local_media_ignored_confirmation">Hidden from Local media</string>
+    <string name="local_media_ignored_status_key" translatable="false">local_media_ignored_status</string>
+    <string name="local_media_clear_ignored_key" translatable="false">local_media_clear_ignored</string>
+    <string name="local_media_ignored_status_title">Ignored media</string>
+    <string name="local_media_ignored_none">No files or folders are ignored</string>
+    <plurals name="local_media_ignored_count">
+        <item quantity="one">%d ignored item or folder</item>
+        <item quantity="other">%d ignored items or folders</item>
+    </plurals>
+    <string name="local_media_clear_ignored_title">Clear ignored media</string>
+    <string name="local_media_clear_ignored_summary">Show all ignored local files and folders again</string>
+    <string name="local_media_clear_ignored_confirmation">Clear all ignored local media and folders?</string>
+
     <!-- Proxy -->
     <string name="proxy_settings_title">Proxy</string>
     <string name="proxy_settings_summary">Route remote network requests through an HTTP or SOCKS5 proxy</string>
@@ -1606,6 +1738,17 @@
     <string name="search_button_behavior_current_tab">Search current tab</string>
     <string name="search_button_behavior_current_service">Search current service</string>
 
+    <!-- Danmaku / bullet comments -->
+    <string name="danmaku_settings_title">Danmaku / bullet comments</string>
+    <string name="danmaku_enabled_title">Show danmaku</string>
+    <string name="danmaku_enabled_summary">Overlay time-synchronized comments on supported videos and live streams</string>
+    <string name="danmaku_enable">Show danmaku</string>
+    <string name="danmaku_disable">Hide danmaku</string>
+    <string name="danmaku_opacity_title">Danmaku opacity</string>
+    <string name="danmaku_text_size_title">Danmaku text size</string>
+    <string name="danmaku_max_rows_title">Maximum danmaku rows</string>
+    <string name="danmaku_duration_title">Danmaku display duration</string>
+
     <!-- Video color adjustments (issue #546) -->
     <string name="video_adjustments" tools:ignore="MissingTranslation">Video adjustments</string>
     <string name="video_adjustments_enable" tools:ignore="MissingTranslation">Enable adjustments</string>
@@ -1620,4 +1763,77 @@
     <string name="video_adjustments_hdr" tools:ignore="MissingTranslation">HDR video: adjustments are bypassed</string>
     <string name="video_adjustments_failed" tools:ignore="MissingTranslation">Video adjustments could not run on this video or device. Continuing with adjustments off.</string>
     <string name="video_adjustments_description" tools:ignore="MissingTranslation">Applies to SDR videos in this player, including downloaded videos. Screen brightness is separate. Remember adjustments to use them in future playback sessions.</string>
+    <string name="remote_keys_title">Remote control keys</string>
+    <string name="remote_keys_summary">Assign buttons for playback and app navigation</string>
+    <string name="remote_keys_help">Choose an action, then press a color, number, letter, function, media, channel, Menu, Guide, Info, Search, Bookmark, or Captions button. Shortcuts work while browsing, playing, or in settings, except when typing. Choose D-pad shortcut in an unassigned action to bind a direction during fullscreen playback with hidden controls. D-pad navigation in menus and visible controls, OK, Back, volume, and system buttons keep their usual functions. Some buttons are reserved by the TV and cannot be assigned.</string>
+    <string name="remote_playback">Playback controls</string>
+    <string name="remote_navigation">App navigation</string>
+    <string name="remote_play_pause">Play / pause</string>
+    <string name="remote_mute">Mute / unmute</string>
+    <string name="remote_home">Home</string>
+    <string name="remote_feed">What’s New</string>
+    <string name="remote_unassigned">Not assigned</string>
+    <string name="remote_capture">Press the button you want to assign, then select Assign. Use D-pad shortcut to choose a direction for fullscreen playback. Remove an existing assignment first to choose a direction. OK, Back, volume, and system buttons cannot be assigned.</string>
+    <string name="remote_selected">Selected button: %1$s</string>
+    <string name="remote_conflict">%1$s is assigned to “%2$s”. Select Assign to replace that assignment.</string>
+    <string name="remote_assign">Assign</string>
+    <string name="remote_remove">Remove assignment</string>
+    <string name="remote_reset">Reset remote keys</string>
+    <string name="remote_reset_message">Remove all custom button assignments and restore the default controls?</string>
+    <string name="learning_playlist_adding">Adding playlist to Learning…</string>
+    <string name="learning_playlist_navigation_title">Course navigation</string>
+    <string name="learning_playlist_navigation_summary">Show the course, lesson position, and next video when opening a Learning playlist.</string>
+    <string name="learning_course_format">Learning playlist: %1$s</string>
+    <string name="learning_lesson_position">Video %1$d of %2$d</string>
+    <string name="learning_lesson_position_partial">Video %1$d · More videos may be available</string>
+    <string name="learning_next_lesson">Up next in this playlist</string>
+    <string name="learning_playlist_end">You have reached the end of the learning playlist.</string>
+    <string name="learning_load_next_lesson">Load next video</string>
+    <string name="learning_next_lesson_error">Could not load the next video. Reopen the playlist to try again.</string>
+    <string name="video_title_text_size_title">Video title text size</string>
+    <string name="channel_name_text_size_title">Channel name text size</string>
+    <string name="media_text_size_default">Default (100%)</string>
+    <string name="tv_related_sidebar_width_title">TV recommendations sidebar width</string>
+    <string name="tv_related_sidebar_compact">Compact (25%)</string>
+    <string name="tv_related_sidebar_balanced">Balanced (33%)</string>
+    <string name="tv_related_sidebar_wide">Wide (44%)</string>
+
+    <string name="learning_show_all_playlists">Show all courses</string>
+    <string name="learning_for_learning">For learning</string>
+    <string name="learning_choose_course">Choose a course</string>
+    <string name="learning_all_lessons">All lessons</string>
+    <string name="subscription_arrange">Arrange subscriptions</string>
+    <string name="subscription_sort_enable">Enable subscription sorting</string>
+    <string name="subscription_sort_help">Drag handles to reorder. Tap or hold channels to select them, then move them under a separator. Changes save automatically; hidden channels stay in your list.</string>
+    <string name="subscription_sort_selected">%1$d selected · Tap to clear selection</string>
+    <string name="subscription_sort_select_visible">Select/deselect visible</string>
+    <string name="subscription_sort_select_channel">Select %1$s</string>
+    <string name="subscription_sort_move">Move selected</string>
+    <string name="subscription_sort_up">Move up</string>
+    <string name="subscription_sort_down">Move down</string>
+    <string name="subscription_arrange_help">Drag channels and separators to change their order. Tap a separator to rename or remove it.</string>
+    <string name="list_separator_add">Add separator above</string>
+    <string name="subscription_separator_add">Add separator</string>
+    <string name="subscription_separator_name">Separator name</string>
+    <string name="subscription_order_reset">Reset to alphabetical order</string>
+    <string name="subscription_order_load_failed">Could not load subscriptions</string>
+    <string name="subscription_order_drag">Drag to reorder</string>
+    <string name="blocked_content_search_hint">Search this blocklist</string>
+    <string name="blocked_content_search_help">Uncheck entries to unblock them. Search filters the list without changing your blocks.</string>
+    <string name="blocked_content_clear_all">Clear entire list</string>
+    <string name="blocked_keywords_edit">Add or edit keywords</string>
+    <string name="independent_player_volume_title">Independent player volume</string>
+    <string name="independent_player_volume_summary">Volume gestures adjust WizeStream independently of device volume, allowing quieter playback on earbuds</string>
+    <string name="orientation_default">Use default</string>
+    <string name="portrait_video_layout">Portrait layout</string>
+    <string name="landscape_video_layout">Landscape layout</string>
+    <string name="portrait_grid_columns">Portrait grid columns</string>
+    <string name="landscape_grid_columns">Landscape grid columns</string>
+    <string name="live_auto_quality_changed">Auto quality changed from %1$s to %2$s</string>
+    <string name="learning_notes_copy_all">Copy all notes</string>
+    <string name="default_live_mode_title">Live playback mode</string>
+    <string name="live_mode_normal">Normal live (10 sec, no rewind)</string>
+    <string name="live_mode_full">Full live (rewind when available)</string>
+    <string name="feed_floating_refresh_title">Floating feed refresh button</string>
+    <string name="feed_floating_refresh_summary">Show a floating Refresh/Cancel button instead of pull-to-refresh and the upper refresh controls.</string>
 </resources>

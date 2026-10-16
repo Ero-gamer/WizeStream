@@ -51,7 +51,11 @@ public final class PlayerHolder {
     private boolean bound;
     @Nullable private PlayerService playerService;
 
-    private Optional<Player> getPlayer() {
+    /**
+     * Returns the currently bound player without starting a playback service.
+     * @return the bound player, or an empty optional when playback is not connected
+     */
+    public Optional<Player> getPlayer() {
         return Optional.ofNullable(playerService)
                 .flatMap(s -> Optional.ofNullable(s.getPlayer()));
     }
@@ -337,9 +341,23 @@ public final class PlayerHolder {
                 }
 
                 @Override
-                public void onScreenRotationButtonClicked() {
+                public void onVideoPlaybackResumed() {
                     if (listener != null) {
-                        listener.onScreenRotationButtonClicked();
+                        listener.onVideoPlaybackResumed();
+                    }
+                }
+
+                @Override
+                public void onScreenRotationButtonClicked(final boolean fullscreen) {
+                    if (listener != null) {
+                        listener.onScreenRotationButtonClicked(fullscreen);
+                    }
+                }
+
+                @Override
+                public void onManualFullscreenButtonClicked(final boolean fullscreen) {
+                    if (listener != null) {
+                        listener.onManualFullscreenButtonClicked(fullscreen);
                     }
                 }
 

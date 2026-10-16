@@ -18,15 +18,19 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.local.feed.FeedDatabaseManager
 import org.schabi.newpipe.local.feed.FeedScope
 import org.schabi.newpipe.local.feed.service.FeedUpdateInfo
+import org.schabi.newpipe.profiles.ProfileManager
 import org.schabi.newpipe.sync.RoomSubscriptionSyncStore
 import org.schabi.newpipe.util.ExtractorHelper
 import org.schabi.newpipe.util.ServiceHelper
 import org.schabi.newpipe.util.image.ImageStrategy
 
-class SubscriptionManager(context: Context) {
+class SubscriptionManager @JvmOverloads constructor(
+    context: Context,
+    private val profileId: String = ProfileManager.getActiveProfileId(context)
+) {
     private val database = NewPipeDatabase.getInstance(context)
     private val subscriptionTable = database.subscriptionDAO()
-    private val feedDatabaseManager = FeedDatabaseManager(context)
+    private val feedDatabaseManager = FeedDatabaseManager(context, profileId)
     private val currentScope = FeedScope.from(context)
     private val currentYoutubeModeMask = currentScope.youtubeModeMask
     private val subscriptionSyncStore by lazy {
@@ -34,7 +38,18 @@ class SubscriptionManager(context: Context) {
     }
 
     fun subscriptionTable(): SubscriptionDAO = subscriptionTable
-    fun subscriptions() = subscriptionTable.getAll()
+    fun subscriptions() = subscriptionTable.getAllForProfile(profileId)
+
+    fun getSubscriptionById(subscriptionId: Long): SubscriptionEntity? {
+        return subscriptionTable.getSubscriptionForProfile(profileId, subscriptionId)
+    }
+
+    fun getSubscriptionFlowable(
+        serviceId: Int,
+        url: String
+    ): Flowable<List<SubscriptionEntity>> {
+        return subscriptionTable.getSubscriptionFlowableForProfile(profileId, serviceId, url)
+    }
 
     fun getSubscriptions(
         currentGroupId: Long = FeedGroupEntity.GROUP_ALL_ID,
@@ -56,28 +71,39 @@ class SubscriptionManager(context: Context) {
         return when {
             filterQuery.isNotEmpty() -> {
                 if (showOnlyUngrouped) {
-                    subscriptionTable.getSubscriptionsOnlyUngroupedFiltered(
+                    subscriptionTable.getSubscriptionsOnlyUngroupedFilteredForProfile(
+                        profileId,
                         currentGroupId,
                         filterQuery
                     )
                 } else {
-                    subscriptionTable.getSubscriptionsFiltered(filterQuery)
+                    subscriptionTable.getSubscriptionsFilteredForProfile(profileId, filterQuery)
                 }
             }
 
-            showOnlyUngrouped -> subscriptionTable.getSubscriptionsOnlyUngrouped(currentGroupId)
+            showOnlyUngrouped ->
+                subscriptionTable.getSubscriptionsOnlyUngroupedForProfile(
+                    profileId,
+                    currentGroupId
+                )
 
-            else -> subscriptionTable.getAll()
+            else -> subscriptionTable.getAllForProfile(profileId)
         }.map { subscriptions -> subscriptions.filter(scope::includes) }
     }
 
     fun upsertAll(infoList: List<Pair<ChannelInfo, ChannelTabInfo?>>) {
         val listEntities = infoList.map {
-            val entity = SubscriptionEntity.from(it.first)
+            val entity = SubscriptionEntity.from(it.first).apply {
+                profileId = this@SubscriptionManager.profileId
+            }
             if (entity.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
                 entity.youtubeModeMask = currentYoutubeModeMask
             }
-            subscriptionTable.getSubscriptionDirect(entity.serviceId, requireNotNull(entity.url))
+            subscriptionTable.getSubscriptionDirectForProfile(
+                profileId,
+                entity.serviceId,
+                requireNotNull(entity.url)
+            )
                 ?.let { existing ->
                     entity.notificationMode = existing.notificationMode
                     entity.notificationKeywords = existing.notificationKeywords
@@ -115,6 +141,7 @@ class SubscriptionManager(context: Context) {
     fun insertImportedSubscriptions(entities: List<SubscriptionEntity>): Int {
         val insertedEntities = database.runInTransaction<List<SubscriptionEntity>> {
             entities.mapNotNull { entity ->
+                entity.profileId = profileId
                 if (entity.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
                     entity.youtubeModeMask = currentYoutubeModeMask
                 }
@@ -131,21 +158,24 @@ class SubscriptionManager(context: Context) {
         return insertedEntities.size
     }
 
-    fun updateChannelInfo(info: ChannelInfo): Completable = subscriptionTable.getSubscription(info.serviceId, info.url)
-        .flatMapCompletable {
-            Completable.fromRunnable {
-                it.apply {
-                    name = info.name
-                    avatarUrl = ImageStrategy.imageListToDbUrl(info.avatars)
-                    description = info.description
-                    subscriberCount = info.subscriberCount
+    fun updateChannelInfo(info: ChannelInfo): Completable {
+        return subscriptionTable
+            .getSubscriptionForProfile(profileId, info.serviceId, info.url)
+            .flatMapCompletable {
+                Completable.fromRunnable {
+                    it.apply {
+                        name = info.name
+                        avatarUrl = ImageStrategy.imageListToDbUrl(info.avatars)
+                        description = info.description
+                        subscriberCount = info.subscriberCount
+                    }
+                    subscriptionTable.update(it)
                 }
-                subscriptionTable.update(it)
             }
-        }
+    }
 
     fun updateNotificationMode(serviceId: Int, url: String, @NotificationMode mode: Int): Completable {
-        return subscriptionTable().getSubscription(serviceId, url)
+        return subscriptionTable().getSubscriptionForProfile(profileId, serviceId, url)
             .flatMapCompletable { entity ->
                 updateNotificationSettings(
                     serviceId,
@@ -162,7 +192,7 @@ class SubscriptionManager(context: Context) {
         @NotificationMode mode: Int,
         keywords: String
     ): Completable {
-        return subscriptionTable().getSubscription(serviceId, url)
+        return subscriptionTable().getSubscriptionForProfile(profileId, serviceId, url)
             .flatMapCompletable { entity: SubscriptionEntity ->
                 val notificationsWereDisabled =
                     entity.notificationMode == NotificationMode.DISABLED
@@ -182,7 +212,9 @@ class SubscriptionManager(context: Context) {
     }
 
     fun updateFromInfo(info: FeedUpdateInfo) {
-        val subscriptionEntity = subscriptionTable.getSubscription(info.uid)
+        val subscriptionEntity =
+            subscriptionTable.getSubscriptionForProfile(profileId, info.uid)
+                ?: return
 
         subscriptionEntity.name = info.name
 
@@ -201,7 +233,11 @@ class SubscriptionManager(context: Context) {
             var updatedSubscription: SubscriptionEntity? = null
             var deleted = false
             database.runInTransaction {
-                val existing = subscriptionTable.getSubscriptionDirect(serviceId, url)
+                val existing = subscriptionTable.getSubscriptionDirectForProfile(
+                    profileId,
+                    serviceId,
+                    url
+                )
                     ?: return@runInTransaction
                 if (serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
                     val remainingModes =
@@ -213,7 +249,11 @@ class SubscriptionManager(context: Context) {
                         return@runInTransaction
                     }
                 }
-                deleted = subscriptionTable.deleteSubscription(serviceId, url) > 0
+                deleted = subscriptionTable.deleteSubscriptionForProfile(
+                    profileId,
+                    serviceId,
+                    url
+                ) > 0
             }
             updatedSubscription?.let(::recordSubscriptionUpsert)
             if (deleted) {
@@ -226,9 +266,15 @@ class SubscriptionManager(context: Context) {
     }
 
     fun insertSubscription(subscriptionEntity: SubscriptionEntity) {
+        insertSubscriptionAndReturn(subscriptionEntity)
+    }
+
+    fun insertSubscriptionAndReturn(subscriptionEntity: SubscriptionEntity): SubscriptionEntity {
         val storedEntity = database.runInTransaction<SubscriptionEntity> {
             val url = requireNotNull(subscriptionEntity.url)
-            val existing = subscriptionTable.getSubscriptionDirect(
+            subscriptionEntity.profileId = profileId
+            val existing = subscriptionTable.getSubscriptionDirectForProfile(
+                profileId,
                 subscriptionEntity.serviceId,
                 url
             )
@@ -252,6 +298,7 @@ class SubscriptionManager(context: Context) {
             }
         }
         recordSubscriptionUpsert(storedEntity)
+        return storedEntity
     }
 
     fun deleteSubscription(subscriptionEntity: SubscriptionEntity) {
@@ -293,7 +340,7 @@ class SubscriptionManager(context: Context) {
 
     private fun recordSubscriptionDelete(serviceId: Int, url: String) {
         try {
-            subscriptionSyncStore.recordLocalDelete(serviceId, url)
+            subscriptionSyncStore.recordLocalDelete(profileId, serviceId, url)
         } catch (error: Exception) {
             Log.e(TAG, "Could not journal a subscription deletion", error)
         }

@@ -5,11 +5,13 @@ import static org.schabi.newpipe.ktx.ViewUtils.animateHideRecyclerViewAllowingSc
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.View;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -30,8 +32,13 @@ import org.schabi.newpipe.info_list.InfoListAdapter;
 import org.schabi.newpipe.info_list.StreamSelectionController;
 import org.schabi.newpipe.info_list.dialog.StreamDialogEntry;
 import org.schabi.newpipe.info_list.ItemViewMode;
+import org.schabi.newpipe.local.feed.FeedDatabaseManager;
+import org.schabi.newpipe.local.subscription.ChannelSubscriptionActions;
+import org.schabi.newpipe.profiles.ProfileManager;
+import org.schabi.newpipe.profiles.ProfileRecord;
 import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
 import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
+import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.util.ContentBlockingHelper;
 import org.schabi.newpipe.util.GridLayoutManagerHelper;
 import org.schabi.newpipe.util.NavigationHelper;
@@ -41,9 +48,13 @@ import org.schabi.newpipe.util.StateSaver;
 import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.views.SuperScrollLayoutManager;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.function.Supplier;
+
+import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 
 public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
         implements ListViewContract<I, N>, StateSaver.WriteRead,
@@ -95,6 +106,14 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
         }
         PreferenceManager.getDefaultSharedPreferences(activity)
                 .unregisterOnSharedPreferenceChangeListener(this);
+    }
+
+    @Override
+    public void onConfigurationChanged(@NonNull final Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        if (itemsList != null) {
+            GridLayoutManagerHelper.preserveScrollPosition(itemsList, this::refreshItemViewMode);
+        }
     }
 
     @Override
@@ -301,17 +320,7 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
 
             @Override
             public void held(final ChannelInfoItem selectedItem) {
-                new AlertDialog.Builder(requireContext())
-                        .setTitle(selectedItem.getName())
-                        .setItems(new String[]{getString(R.string.block_channel)},
-                                (dialog, which) -> {
-                                    ContentBlockingHelper.blockChannel(requireContext(),
-                                            selectedItem.getUrl(), selectedItem.getName());
-                                    android.widget.Toast.makeText(requireContext(),
-                                            R.string.channel_blocked,
-                                            android.widget.Toast.LENGTH_SHORT).show();
-                                })
-                        .show();
+                showChannelActions(selectedItem);
             }
         });
 
@@ -329,6 +338,123 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
 
         // Ensure that there is always a scroll listener (e.g. when rotating the device)
         useNormalItemListScrollListener();
+    }
+
+    private void showChannelActions(@NonNull final ChannelInfoItem selectedItem) {
+        final List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+
+        labels.add(getString(R.string.subscribe_button_title));
+        actions.add(() -> ChannelSubscriptionActions.subscribe(requireContext(), selectedItem)
+                .subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(
+                        ignored -> Toast.makeText(requireContext(),
+                                R.string.you_successfully_subscribed,
+                                Toast.LENGTH_SHORT).show(),
+                        error -> ErrorUtil.showUiErrorSnackbar(this,
+                                "Subscribing to channel", error)));
+
+        final List<ProfileRecord> otherProfiles =
+                ChannelSubscriptionActions.otherProfiles(requireContext());
+        if (!otherProfiles.isEmpty()) {
+            labels.add(getString(R.string.channel_subscribe_to_profile));
+            actions.add(() -> showSubscribeToProfileDialog(selectedItem, otherProfiles));
+        }
+
+        labels.add(getString(R.string.feed_groups_header_title));
+        actions.add(() -> showAddToGroupDialog(selectedItem));
+
+        labels.add(getString(R.string.block_channel));
+        actions.add(() -> {
+            ContentBlockingHelper.blockChannel(requireContext(),
+                    selectedItem.getUrl(), selectedItem.getName());
+            Toast.makeText(requireContext(), R.string.channel_blocked,
+                    Toast.LENGTH_SHORT).show();
+        });
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle(selectedItem.getName())
+                .setItems(labels.toArray(new String[0]),
+                        (dialog, which) -> actions.get(which).run())
+                .show();
+    }
+
+    private void showAddToGroupDialog(@NonNull final ChannelInfoItem selectedItem) {
+        final FeedDatabaseManager feedManager = new FeedDatabaseManager(requireContext());
+        feedManager.groups().firstOrError()
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(groups -> {
+                    if (groups.isEmpty()) {
+                        Toast.makeText(requireContext(), R.string.no_feed_group_created_yet,
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    final String[] labels = groups.stream()
+                            .map(group -> group.getName())
+                            .toArray(String[]::new);
+                    new AlertDialog.Builder(requireContext())
+                            .setTitle(R.string.feed_groups_header_title)
+                            .setMultiChoiceItems(labels, null, null)
+                            .setPositiveButton(R.string.done, (dialog, which) -> {
+                                final AlertDialog groupDialog = (AlertDialog) dialog;
+                                final List<Long> selectedGroupIds = new ArrayList<>();
+                                for (int index = 0; index < groups.size(); index++) {
+                                    if (groupDialog.getListView().isItemChecked(index)) {
+                                        selectedGroupIds.add(groups.get(index).getUid());
+                                    }
+                                }
+                                if (selectedGroupIds.isEmpty()) {
+                                    return;
+                                }
+                                ChannelSubscriptionActions.addToGroups(
+                                                requireContext(),
+                                                selectedItem,
+                                                selectedGroupIds)
+                                        .subscribeOn(Schedulers.io())
+                                        .observeOn(AndroidSchedulers.mainThread())
+                                        .subscribe(
+                                                () -> Toast.makeText(
+                                                        requireContext(),
+                                                        R.string.you_successfully_subscribed,
+                                                        Toast.LENGTH_SHORT).show(),
+                                                error -> ErrorUtil.showUiErrorSnackbar(
+                                                        this,
+                                                        "Adding channel to feed group",
+                                                        error));
+                            })
+                            .setNegativeButton(R.string.cancel, null)
+                            .show();
+                }, error -> ErrorUtil.showUiErrorSnackbar(
+                        this, "Loading feed groups", error));
+    }
+
+    private void showSubscribeToProfileDialog(
+            @NonNull final ChannelInfoItem selectedItem,
+            @NonNull final List<ProfileRecord> profiles) {
+        final String[] labels = profiles.stream()
+                .map(profile -> ProfileManager.getDisplayName(requireContext(), profile))
+                .toArray(String[]::new);
+        new AlertDialog.Builder(requireContext())
+                .setTitle(R.string.channel_subscribe_to_profile_title)
+                .setItems(labels, (dialog, which) -> {
+                    final ProfileRecord profile = profiles.get(which);
+                    ChannelSubscriptionActions.subscribeToProfile(
+                                    requireContext(), selectedItem, profile)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe(
+                                    ignored -> Toast.makeText(
+                                            requireContext(),
+                                            getString(R.string.channel_subscribed_to_profile,
+                                                    ProfileManager.getDisplayName(
+                                                            requireContext(), profile)),
+                                            Toast.LENGTH_LONG).show(),
+                                    error -> ErrorUtil.showUiErrorSnackbar(
+                                            this, "Subscribing channel to profile", error));
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     /**
@@ -418,14 +544,21 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
             return;
         }
         onItemSelected(selectedItem);
+        final PlayQueue selectionQueue = getPlayQueueForSelection(selectedItem);
         if (shouldPlayOnBackground(selectedItem)) {
             NavigationHelper.playOnBackgroundPlayer(requireContext(),
-                    new SinglePlayQueue(selectedItem), true);
+                    selectionQueue == null ? new SinglePlayQueue(selectedItem) : selectionQueue,
+                    true);
             return;
         }
         NavigationHelper.openVideoDetailFragment(requireContext(), getFM(),
                 selectedItem.getServiceId(), selectedItem.getUrl(), selectedItem.getName(),
-                null, false);
+                selectionQueue, false);
+    }
+
+    @Nullable
+    protected PlayQueue getPlayQueueForSelection(final StreamInfoItem item) {
+        return null;
     }
 
     protected boolean shouldPlayOnBackground(@NonNull final StreamInfoItem item) {
@@ -544,15 +677,15 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
     @Override
     public void onSharedPreferenceChanged(final SharedPreferences sharedPreferences,
                                           final String key) {
-        if (getString(R.string.list_view_mode_key).equals(key)
-                || getString(R.string.grid_columns_key).equals(key)) {
+        if (org.schabi.newpipe.util.ThemeHelper.isListLayoutPreference(requireContext(), key)) {
             updateFlags |= LIST_MODE_UPDATE_FLAG;
         } else if (getString(R.string.comment_text_size_key).equals(key)) {
             commentTextSizeUpdatePending = true;
             if (isResumed()) {
                 applyPendingCommentTextSizeUpdate();
             }
-        } else if (ContentBlockingHelper.isPreferenceKey(requireContext(), key)) {
+        } else if (ContentBlockingHelper.shouldReloadForPreference(
+                requireContext(), key, getContentBlockingTarget())) {
             reloadContent();
         }
     }

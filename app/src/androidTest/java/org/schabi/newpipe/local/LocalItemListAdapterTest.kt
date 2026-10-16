@@ -90,15 +90,20 @@ class LocalItemListAdapterTest {
             )
             var selected: LocalItem? = null
             var dragCount = 0
-            adapter.setSelectedListener(object : OnClickGesture<LocalItem> {
-                override fun selected(selectedItem: LocalItem) {
-                    selected = selectedItem
-                }
+            adapter.setSelectedListener(
+                object : OnClickGesture<LocalItem> {
+                    override fun selected(selectedItem: LocalItem) {
+                        selected = selectedItem
+                    }
 
-                override fun drag(selectedItem: LocalItem, viewHolder: RecyclerView.ViewHolder) {
-                    dragCount++
+                    override fun drag(
+                        selectedItem: LocalItem,
+                        viewHolder: RecyclerView.ViewHolder
+                    ) {
+                        dragCount++
+                    }
                 }
-            })
+            )
             val viewTypes = mutableSetOf<Int>()
             for (mode in listOf(ItemViewMode.LIST, ItemViewMode.CARD, ItemViewMode.GRID)) {
                 adapter.setItemViewMode(mode)
@@ -108,6 +113,10 @@ class LocalItemListAdapterTest {
                     val holder = adapter.createViewHolder(FrameLayout(context), type)
                     val handle = holder.itemView.findViewById<View>(R.id.itemHandle)
                     val thumbnail = holder.itemView.findViewById<View>(R.id.itemThumbnailContainer)
+                    val image =
+                        holder.itemView.findViewById<android.widget.ImageView>(
+                            R.id.itemThumbnailView
+                        )
                     val title = holder.itemView.findViewById<TextView>(R.id.itemTitleView)
                     var thumbnailWidth = 0
                     var thumbnailHeight = 0
@@ -124,6 +133,17 @@ class LocalItemListAdapterTest {
                         holder.itemView.layout(0, 0, width, holder.itemView.measuredHeight)
                         assertTrue(thumbnail.width > 0)
                         assertTrue(thumbnail.height > 0)
+                        if (mode == ItemViewMode.CARD) {
+                            assertEquals(
+                                android.widget.ImageView.ScaleType.FIT_START,
+                                image.scaleType
+                            )
+                        } else if (mode == ItemViewMode.GRID) {
+                            assertEquals(
+                                android.widget.ImageView.ScaleType.FIT_CENTER,
+                                image.scaleType
+                            )
+                        }
                         if (mode == ItemViewMode.LIST) {
                             assertTrue(title.left >= thumbnail.right)
                             assertTrue(title.top < thumbnail.bottom)
@@ -176,16 +196,93 @@ class LocalItemListAdapterTest {
         }
     }
 
+    @Test
+    fun separatorsStayOutOfPlaybackOrderAndSupportReorderRemovalUndoAndSearch() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val context = ContextThemeWrapper(instrumentation.targetContext, R.style.LightTheme)
+            val adapter = LocalItemListAdapter(context)
+            val first = playlistEntry(0)
+            val second = playlistEntry(1).copy(streamId = 2)
+            val duplicate = playlistEntry(2)
+            val items = listOf(first, second, duplicate)
+            val sections = ListSeparators(context, "separator-test", "playlist")
+            val keys = ListSeparators.keys(items)
+            val preferences = androidx.preference.PreferenceManager.getDefaultSharedPreferences(context)
+            val storageKey = "list_separators_separator-test_playlist"
+            preferences
+                .edit()
+                .remove("${storageKey}_positions")
+                .putString(
+                    storageKey,
+                    org.json
+                        .JSONObject()
+                        .put(keys[0], "Introduction")
+                        .put(keys[2], "Review")
+                        .toString()
+                ).commit()
+            adapter.setSeparatorGestures(
+                { from, to -> sections.move(adapter.itemsList, from, to) },
+                { row -> sections.removeRow(adapter.itemsList, row) },
+                { row -> sections.insertRow(adapter.itemsList, row) },
+                { _ -> }
+            )
+            adapter.setSeparators(sections::labels) { }
+            adapter.addItems(items)
+            adapter.setHeaderSupplier { View(context) }
+            assertEquals(6, adapter.itemCount)
+            assertEquals(items, adapter.itemsList)
+            assertEquals(-1, adapter.getItemIndex(1))
+            assertEquals(0, adapter.getItemIndex(2))
+            assertEquals(1, adapter.getItemIndex(3))
+            assertEquals(-1, adapter.getItemIndex(4))
+            assertEquals(2, adapter.getItemIndex(5))
+            assertEquals(3, adapter.getSpanSizeLookup(3).getSpanSize(1))
+            val heading = adapter.createViewHolder(FrameLayout(context), adapter.getItemViewType(1))
+            adapter.bindViewHolder(heading, 1)
+            assertEquals(
+                "Introduction",
+                heading.itemView
+                    .findViewById<TextView>(R.id.separator_label)
+                    .text
+                    .toString()
+            )
+            assertTrue(heading.itemView.findViewById<View>(R.id.separator_label).isLongClickable)
+            assertTrue(adapter.swapItems(1, 3))
+            assertEquals(items, adapter.itemsList)
+            assertTrue(adapter.swapItems(2, 1))
+            assertEquals(listOf(second, first, duplicate), adapter.itemsList)
+            assertEquals(1, adapter.getItemIndex(2))
+            assertSame(first, adapter.removeItemAt(1))
+            adapter.insertItemAt(1, first, 2)
+            assertEquals(listOf(second, first, duplicate), adapter.itemsList)
+            assertEquals(mapOf(2 to "Introduction", 3 to "Review"), sections.labels(adapter.itemsList))
+            adapter.setSeparators(null, null)
+            assertEquals(4, adapter.itemCount)
+            assertEquals(listOf(second, first, duplicate), adapter.itemsList)
+            adapter.setSeparators(sections::labels) { }
+            assertEquals(6, adapter.itemCount)
+            assertTrue(ListSeparators(context, "other-profile", "playlist").labels(items).isEmpty())
+            assertTrue(ListSeparators(context, "separator-test", "other-list").labels(items).isEmpty())
+            preferences
+                .edit()
+                .remove(storageKey)
+                .remove("${storageKey}_positions")
+                .commit()
+        }
+    }
+
     private fun playlistEntry(joinIndex: Int) = PlaylistStreamEntry(
-        streamEntity = StreamEntity(
-            serviceId = 0,
-            url = "https://example.com/video",
-            title = "Video",
-            streamType = StreamType.VIDEO_STREAM,
-            duration = 60,
-            uploader = "Uploader",
-            uploaderUrl = "https://example.com/channel"
-        ),
+        streamEntity =
+            StreamEntity(
+                serviceId = 0,
+                url = "https://example.com/video",
+                title = "Video",
+                streamType = StreamType.VIDEO_STREAM,
+                duration = 60,
+                uploader = "Uploader",
+                uploaderUrl = "https://example.com/channel"
+            ),
         progressMillis = 0,
         streamId = 1,
         joinIndex = joinIndex

@@ -35,11 +35,15 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.evernote.android.state.State;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.schabi.newpipe.learning.LearningPlaylistContext;
 import org.schabi.newpipe.NewPipeDatabase;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.learning.LearningDifficulty;
+import org.schabi.newpipe.learning.LearningReviewDialog;
 import org.schabi.newpipe.database.LocalItem;
 import org.schabi.newpipe.database.history.model.StreamHistoryEntry;
 import org.schabi.newpipe.database.playlist.PlaylistStreamEntry;
@@ -62,13 +66,16 @@ import org.schabi.newpipe.local.LocalUploaderNavigation;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
 import org.schabi.newpipe.local.search.ContextualSearchHelper;
 import org.schabi.newpipe.local.search.ContextualSearchable;
+import org.schabi.newpipe.local.search.NoteSearch;
 import org.schabi.newpipe.learning.LearningContentManager;
 import org.schabi.newpipe.learning.LearningMode;
+import org.schabi.newpipe.learning.LearningPlaylistNotesDialog;
 import org.schabi.newpipe.learning.LearningPlaylistProgress;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
 import org.schabi.newpipe.player.playqueue.LocalMediaPlayQueue;
 import org.schabi.newpipe.player.playqueue.PlayQueueItem;
 import org.schabi.newpipe.player.playqueue.SinglePlayQueue;
+import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.ExpandableSearchViewHelper;
 import org.schabi.newpipe.util.Localization;
@@ -105,6 +112,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     Parcelable itemsListState;
     @State
     protected String contextualSearchQuery = "";
+    private java.util.Map<Long, String> noteSearchText = Collections.emptyMap();
     @State
     protected boolean standaloneSearchExpanded;
 
@@ -112,11 +120,14 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     private PlaylistControlBinding playlistControlBinding;
 
     private ItemTouchHelper itemTouchHelper;
+    @State
+    public boolean editMode;
     private Snackbar swipeRemovalSnackbar;
 
     private LocalPlaylistManager playlistManager;
     private LearningContentManager learningContentManager;
     private Subscription databaseSubscription;
+    private org.schabi.newpipe.local.ListSeparators separators;
 
     private CompositeDisposable disposables;
 
@@ -126,6 +137,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     private DebounceSaver debounceSaver;
     /** Flag to prevent simultaneous rewrites of the playlist. */
     private boolean isRewritingPlaylist = false;
+    private boolean isDeletingPlaylist = false;
     private final List<PlaylistStreamEntry> unfilteredItems = new ArrayList<>();
 
     /**
@@ -148,7 +160,9 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     @Override
     public void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        playlistManager = new LocalPlaylistManager(NewPipeDatabase.getInstance(requireContext()));
+        playlistManager = new LocalPlaylistManager(
+                NewPipeDatabase.getInstance(requireContext()),
+                ProfileManager.getActiveProfileId(requireContext()));
         learningContentManager = LearningContentManager.getInstance(requireContext());
 
         disposables = new CompositeDisposable();
@@ -206,6 +220,11 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         });
 
         headerBinding.playlistTitleView.setOnClickListener(view -> createRenameDialog());
+        headerBinding.playlistEditToggle.setOnClickListener(view -> {
+            editMode = !editMode;
+            updateEditMode();
+        });
+        updateEditMode();
 
         itemTouchHelper = new ItemTouchHelper(getItemTouchCallback());
         itemTouchHelper.attachToRecyclerView(itemsList);
@@ -221,7 +240,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                         return;
                     }
                     NavigationHelper.openVideoDetailFragment(requireContext(), getFM(),
-                            item.getServiceId(), item.getUrl(), item.getTitle(), null, false);
+                            item.getServiceId(), item.getUrl(), item.getTitle(),
+                            isLearningPlaylist() ? getPlayQueueStartingAt(entry) : null, false);
                 }
             }
 
@@ -235,7 +255,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             @Override
             public void drag(final LocalItem selectedItem,
                              final RecyclerView.ViewHolder viewHolder) {
-                if (itemTouchHelper != null) {
+                if (editMode && itemTouchHelper != null) {
                     itemTouchHelper.startDrag(viewHolder);
                 }
             }
@@ -279,6 +299,17 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
         isLoadingComplete.set(false);
 
+        disposables.add(NewPipeDatabase.getInstance(requireContext()).learningNoteDAO()
+                .localPlaylistNotes(playlistId, ProfileManager.getActiveProfileId(requireContext()))
+                .subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread())
+                .subscribe(notes -> {
+                    noteSearchText = NoteSearch.textByStream(notes);
+                    if (ContextualSearchHelper.isActive(contextualSearchQuery)) {
+                        applyPlaylistSearch();
+                    }
+                }, error -> showError(new ErrorInfo(error,
+                        UserAction.REQUESTED_BOOKMARK, "Loading playlist notes"))));
+
         playlistManager.getPlaylistStreams(playlistId)
                 .onBackpressureLatest()
                 .observeOn(AndroidSchedulers.mainThread())
@@ -308,6 +339,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         super.onCreateOptionsMenu(menu, inflater);
         inflater.inflate(R.menu.menu_local_playlist, menu);
 
+        menu.findItem(R.id.menu_item_delete_playlist).setVisible(!useAsFrontPage);
+
         final MenuItem searchItem = menu.findItem(R.id.menu_item_search_content);
         searchItem.setVisible(!useAsFrontPage);
         if (!useAsFrontPage) {
@@ -324,6 +357,12 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     @Override
     public void onPrepareOptionsMenu(@NonNull final Menu menu) {
         super.onPrepareOptionsMenu(menu);
+        menu.findItem(R.id.menu_item_learning_review).setVisible(
+                LearningDifficulty.isEnabled(requireContext())
+                        && learningContentManager.isLocalPlaylistMarked(playlistId));
+        menu.findItem(R.id.menu_item_learning_notes).setVisible(
+                LearningMode.isEnabled(requireContext())
+                        && learningContentManager.isLocalPlaylistMarked(playlistId));
         final boolean enabled = LearningMode.isPlaylistProgressEnabled(requireContext())
                 && learningContentManager.isLocalPlaylistMarked(playlistId);
         menu.findItem(R.id.menu_item_mark_all_watched).setVisible(enabled);
@@ -428,7 +467,17 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
-        if (item.getItemId() == R.id.menu_item_share_playlist) {
+        if (item.getItemId() == R.id.menu_item_learning_review) {
+            LearningReviewDialog.show(getParentFragmentManager(),
+                    LearningContentManager.localPlaylistSourceId(playlistId),
+                    ProfileManager.getActiveProfileId(requireContext()), false);
+            return true;
+        }
+        if (item.getItemId() == R.id.menu_item_learning_notes) {
+            LearningPlaylistNotesDialog.show(getParentFragmentManager(),
+                    LearningContentManager.localPlaylistSourceId(playlistId),
+                    ProfileManager.getActiveProfileId(requireContext()));
+        } else if (item.getItemId() == R.id.menu_item_share_playlist) {
             createShareConfirmationDialog();
         } else if (item.getItemId() == R.id.menu_item_download_playlist) {
             showBulkDownloadDialog();
@@ -436,6 +485,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             final PlayQueue playQueue = getCompletePlaylistPlayQueue();
             playQueue.shuffleFromStart();
             NavigationHelper.playOnMainPlayer(requireContext(), playQueue, false);
+        } else if (item.getItemId() == R.id.menu_item_delete_playlist) {
+            createDeleteDialog();
         } else if (item.getItemId() == R.id.menu_item_rename_playlist) {
             createRenameDialog();
         } else if (item.getItemId() == R.id.menu_item_remove_watched) {
@@ -663,13 +714,36 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         if (itemListAdapter == null) {
             return;
         }
+        if (separators == null) {
+            separators = new org.schabi.newpipe.local.ListSeparators(requireContext(),
+                    ProfileManager.getActiveProfileId(requireContext()), "playlist:" + playlistId);
+        }
+        itemListAdapter.setSeparatorGestures(
+                (from, to) -> {
+                    separators.move(itemListAdapter.getItemsList(), from, to);
+                    if (debounceSaver != null) {
+                        debounceSaver.setHasChangesToSave();
+                    }
+                },
+                row -> separators.removeRow(itemListAdapter.getItemsList(), row),
+                row -> separators.insertRow(itemListAdapter.getItemsList(), row),
+                holder -> {
+                    if (editMode && itemTouchHelper != null) {
+                        itemTouchHelper.startDrag(holder);
+                    }
+                });
+        itemListAdapter.setSeparators(ContextualSearchHelper.isActive(contextualSearchQuery)
+                ? null : separators::labels, this::editSeparatorRow);
         final List<PlaylistStreamEntry> displayedItems = ContextualSearchHelper.filter(
                 unfilteredItems, contextualSearchQuery,
                 item -> new String[]{item.getStreamEntity().getTitle(),
                         item.getStreamEntity().getUploader(),
                         item.getStreamEntity().getLocalAlbum(),
-                        item.getStreamEntity().getLocalFolder()});
+                        item.getStreamEntity().getLocalFolder(),
+                        noteSearchText.get(item.getStreamId())});
         itemListAdapter.clearStreamItemList();
+        itemListAdapter.setItemHandleEnabled(editMode
+                && !ContextualSearchHelper.isActive(contextualSearchQuery));
         itemListAdapter.addItems(displayedItems);
 
         final boolean searchActive = ContextualSearchHelper.isActive(contextualSearchQuery);
@@ -702,6 +776,49 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     // Playlist Metadata/Streams Manipulation
     //////////////////////////////////////////////////////////////////////////*/
 
+    private void createDeleteDialog() {
+        if (playlistId == null || playlistManager == null || getContext() == null
+                || isDeletingPlaylist) {
+            return;
+        }
+
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(name)
+                .setMessage(R.string.delete_playlist_prompt)
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.delete, (dialog, which) -> deletePlaylist())
+                .show();
+    }
+
+    private void deletePlaylist() {
+        if (playlistId == null || playlistManager == null || disposables == null
+                || isDeletingPlaylist) {
+            return;
+        }
+
+        isDeletingPlaylist = true;
+        disposables.add(playlistManager.updatePlaylists(Collections.emptyList(),
+                        Collections.singletonList(playlistId))
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(() -> {
+                    if (debounceSaver != null) {
+                        debounceSaver.setNoChangesToSave();
+                    }
+                    if (isAdded()) {
+                        final var fragmentManager = getFM();
+                        if (fragmentManager != null && !fragmentManager.isStateSaved()) {
+                            if (!fragmentManager.popBackStackImmediate()) {
+                                NavigationHelper.gotoMainFragment(fragmentManager);
+                            }
+                        }
+                    }
+                }, throwable -> {
+                    isDeletingPlaylist = false;
+                    showError(new ErrorInfo(throwable, UserAction.REQUESTED_BOOKMARK,
+                            "Deleting local playlist"));
+                }));
+    }
+
     private void createRenameDialog() {
         if (playlistId == null || name == null || getContext() == null) {
             return;
@@ -713,7 +830,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         dialogBinding.dialogEditText.setSelection(dialogBinding.dialogEditText.getText().length());
         dialogBinding.dialogEditText.setText(name);
 
-        new AlertDialog.Builder(getContext())
+        new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.rename_playlist)
                 .setView(dialogBinding.getRoot())
                 .setCancelable(true)
@@ -852,7 +969,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
      */
     @Override
     public void saveImmediate() {
-        if (playlistManager == null || itemListAdapter == null) {
+        if (playlistManager == null || itemListAdapter == null || isDeletingPlaylist) {
             return;
         }
 
@@ -891,6 +1008,26 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     }
 
 
+    private void updateEditMode() {
+        if (headerBinding != null) {
+            headerBinding.playlistEditToggle.setText(
+                    editMode ? R.string.playlist_edit_done : R.string.playlist_edit_mode);
+        }
+        if (itemListAdapter != null) {
+            itemListAdapter.setItemHandleEnabled(editMode
+                    && !ContextualSearchHelper.isActive(contextualSearchQuery));
+            itemListAdapter.notifyDataSetChanged();
+        }
+    }
+
+    private boolean isSwipeRemovalEnabled() {
+        final boolean enabled = androidx.preference.PreferenceManager
+                .getDefaultSharedPreferences(requireContext())
+                .getBoolean(getString(R.string.playlist_swipe_remove_key), false);
+        return LocalPlaylistSwipePolicy.isItemRemovalSwipeEnabled(
+                useAsFrontPage, editMode, enabled);
+    }
+
     private ItemTouchHelper.SimpleCallback getItemTouchCallback() {
         int directions = ItemTouchHelper.UP | ItemTouchHelper.DOWN;
         if (shouldUseGridLayout(requireContext())) {
@@ -898,6 +1035,13 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         }
         return new ItemTouchHelper.SimpleCallback(directions,
                 ItemTouchHelper.LEFT | ItemTouchHelper.RIGHT) {
+            @Override
+            public int getDragDirs(@NonNull final RecyclerView recyclerView,
+                                   @NonNull final RecyclerView.ViewHolder viewHolder) {
+                return editMode && !ContextualSearchHelper.isActive(contextualSearchQuery)
+                        ? super.getDragDirs(recyclerView, viewHolder) : 0;
+            }
+
             @Override
             public int interpolateOutOfBoundsScroll(@NonNull final RecyclerView recyclerView,
                                                     final int viewSize,
@@ -915,8 +1059,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             public boolean onMove(@NonNull final RecyclerView recyclerView,
                                   @NonNull final RecyclerView.ViewHolder source,
                                   @NonNull final RecyclerView.ViewHolder target) {
-                if (source.getItemViewType() != target.getItemViewType()
-                        || itemListAdapter == null) {
+                if (!editMode || itemListAdapter == null) {
                     return false;
                 }
 
@@ -943,13 +1086,13 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
 
             @Override
             public boolean isItemViewSwipeEnabled() {
-                return LocalPlaylistSwipePolicy.isItemRemovalSwipeEnabled(useAsFrontPage);
+                return isSwipeRemovalEnabled();
             }
 
             @Override
             public int getSwipeDirs(@NonNull final RecyclerView recyclerView,
                                     @NonNull final RecyclerView.ViewHolder viewHolder) {
-                if (!LocalPlaylistSwipePolicy.isItemRemovalSwipeEnabled(useAsFrontPage)
+                if (!isSwipeRemovalEnabled()
                         || itemListAdapter == null) {
                     return ItemTouchHelper.ACTION_STATE_IDLE;
                 }
@@ -1005,7 +1148,7 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
             if (itemListAdapter == null) {
                 return;
             }
-            itemListAdapter.insertItemAt(itemIndex, removedEntry);
+            itemListAdapter.insertItemAt(itemIndex, removedEntry, adapterPosition);
             persistSwipeChange();
         });
         snackbar.addCallback(new Snackbar.Callback() {
@@ -1047,17 +1190,25 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                         getString(marked
                                 ? R.string.learning_remove_content
                                 : R.string.learning_mark_content),
-                        getString(R.string.delete)
+                        getString(R.string.delete),
+                        getString(R.string.playlist_video_notes)
                     }
                     : new String[] {
                         getString(R.string.play),
                         getString(R.string.local_media_play_background),
-                        getString(R.string.delete)
+                        getString(R.string.delete),
+                        getString(R.string.playlist_video_notes)
                     };
+            final List<String> menuActions = new ArrayList<>(java.util.Arrays.asList(actions));
+            if (!ContextualSearchHelper.isActive(contextualSearchQuery)) {
+                menuActions.add(getString(R.string.list_separator_add));
+            }
             new AlertDialog.Builder(requireContext())
                     .setTitle(item.getStreamEntity().getTitle())
-                    .setItems(actions, (dialog, which) -> {
-                        if (which == 0) {
+                    .setItems(menuActions.toArray(new String[0]), (dialog, which) -> {
+                        if (which == actions.length) {
+                            editSeparatorAt(itemListAdapter.getItemsList().indexOf(item));
+                        } else if (which == 0) {
                             NavigationHelper.playOnMainPlayer(requireContext(),
                                     getPlayQueueStartingAt(item), false);
                         } else if (which == 1) {
@@ -1078,6 +1229,8 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                                     ));
                         } else if (which == (learningEnabled ? 3 : 2)) {
                             deleteItem(item);
+                        } else {
+                            showVideoNotes(item);
                         }
                     })
                     .show();
@@ -1095,6 +1248,15 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
                     StreamDialogDefaultEntry.SET_AS_PLAYLIST_THUMBNAIL,
                     StreamDialogDefaultEntry.DELETE
             );
+
+            dialogBuilder.addEntry(new org.schabi.newpipe.info_list.dialog.StreamDialogEntry(
+                    R.string.playlist_video_notes, (f, i) -> showVideoNotes(item)));
+
+            if (!ContextualSearchHelper.isActive(contextualSearchQuery)) {
+                dialogBuilder.addEntry(new org.schabi.newpipe.info_list.dialog.StreamDialogEntry(
+                        R.string.list_separator_add, (f, i) -> editSeparatorAt(
+                                itemListAdapter.getItemsList().indexOf(item))));
+            }
 
             // set custom actions
             // all entries modified below have already been added within the builder
@@ -1116,6 +1278,28 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
         } catch (final IllegalArgumentException e) {
             InfoItemDialog.Builder.reportErrorDuringInitialization(e, infoItem);
         }
+    }
+
+    private void editSeparatorRow(final int row) {
+        if (separators != null && itemListAdapter != null) {
+            separators.editRow(requireContext(), itemListAdapter.getItemsList(), row,
+                    () -> itemListAdapter.setSeparators(separators::labels,
+                            this::editSeparatorRow),
+                    false);
+        }
+    }
+
+    private void editSeparatorAt(final int index) {
+        if (separators != null && itemListAdapter != null) {
+            separators.edit(requireContext(), itemListAdapter.getItemsList(), index,
+                    () -> itemListAdapter.setSeparators(separators::labels,
+                            this::editSeparatorRow));
+        }
+    }
+
+    private void showVideoNotes(final PlaylistStreamEntry item) {
+        org.schabi.newpipe.learning.VideoNotesDialog.show(getParentFragmentManager(),
+                item.getStreamEntity().getUid(), item.getStreamEntity().getTitle());
     }
 
     private void setInitialData(final long pid, final String title) {
@@ -1234,13 +1418,30 @@ public class LocalPlaylistFragment extends BaseLocalListFragment<List<PlaylistSt
     }
 
     private PlayQueue getPlayQueue(final List<? extends LocalItem> infoItems, final int index) {
-        final List<PlayQueueItem> queueItems = new ArrayList<>(infoItems.size());
-        for (final LocalItem item : infoItems) {
+        final boolean learning = isLearningPlaylist();
+        final List<? extends LocalItem> orderedItems = learning
+                && ContextualSearchHelper.isActive(contextualSearchQuery)
+                ? unfilteredItems : infoItems;
+        final int selectedIndex = learning && index >= 0 && index < infoItems.size()
+                ? Math.max(0, orderedItems.indexOf(infoItems.get(index))) : index;
+        final List<PlayQueueItem> queueItems = new ArrayList<>(orderedItems.size());
+        for (final LocalItem item : orderedItems) {
             if (item instanceof PlaylistStreamEntry) {
                 queueItems.add(((PlaylistStreamEntry) item).toPlayQueueItem());
             }
         }
-        return new LocalMediaPlayQueue(queueItems, index);
+        final PlayQueue queue = new LocalMediaPlayQueue(queueItems, selectedIndex);
+        if (learning) {
+            queue.setLearningPlaylistContext(new LearningPlaylistContext(
+                    LearningContentManager.localPlaylistSourceId(playlistId), name,
+                    ProfileManager.getActiveProfileId(requireContext())));
+        }
+        return queue;
+    }
+
+    private boolean isLearningPlaylist() {
+        return LearningMode.isEnabled(requireContext())
+                && learningContentManager.isLocalPlaylistMarked(playlistId);
     }
 
     /**

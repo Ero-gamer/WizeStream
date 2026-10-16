@@ -10,6 +10,7 @@ import androidx.room.Query
 import io.reactivex.rxjava3.core.Flowable
 import org.schabi.newpipe.learning.LearningDailyActivity
 import org.schabi.newpipe.learning.LearningDashboardStream
+import org.schabi.newpipe.learning.LearningLastLesson
 import org.schabi.newpipe.learning.LearningPlaylistSummary
 
 @Dao
@@ -37,6 +38,8 @@ interface LearningDashboardDAO {
           ON playlists.uid = playlist_stream_join.playlist_id
         LEFT JOIN streams ON playlist_stream_join.stream_id = streams.uid
         LEFT JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
+        WHERE playlists.profile_id = :profileId
         GROUP BY playlists.uid
         UNION ALL
         SELECT NULL AS playlist_id,
@@ -56,12 +59,68 @@ interface LearningDashboardDAO {
           ON learning_content_sources.source_id = learning_content_streams.source_id
         LEFT JOIN streams ON learning_content_streams.stream_id = streams.uid
         LEFT JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
         WHERE learning_content_sources.source_type = 'REMOTE_PLAYLIST'
         GROUP BY learning_content_sources.source_id
         ORDER BY playlist_name
         """
     )
-    fun observePlaylistSummaries(): Flowable<List<LearningPlaylistSummary>>
+    fun observePlaylistSummaries(
+        profileId: String
+    ): Flowable<List<LearningPlaylistSummary>>
+
+    @Query(
+        """
+        SELECT streams.*, COALESCE(stream_state.progress_time, 0) AS progress_millis,
+               0 AS note_count, 0 AS latest_note_update,
+               (SELECT COALESCE(playlists.name, sources.title)
+                FROM learning_content_sources sources
+                LEFT JOIN playlists ON playlists.uid = sources.local_playlist_id
+                 AND playlists.profile_id = :profileId
+                WHERE (sources.source_type = 'LOCAL_PLAYLIST'
+                       AND playlists.uid IS NOT NULL
+                       AND EXISTS (SELECT 1 FROM playlist_stream_join course_join
+                                   WHERE course_join.playlist_id = playlists.uid
+                                     AND course_join.stream_id = streams.uid))
+                   OR (sources.source_type = 'REMOTE_PLAYLIST'
+                       AND EXISTS (SELECT 1 FROM learning_content_streams course_streams
+                                   WHERE course_streams.source_id = sources.source_id
+                                     AND course_streams.stream_id = streams.uid))
+                ORDER BY sources.created_at DESC, sources.source_id
+                LIMIT 1) AS course_title
+        FROM streams
+        INNER JOIN (
+            SELECT stream_id, MAX(accessed_at) AS latest_access
+            FROM (
+                SELECT stream_id, access_date AS accessed_at
+                FROM stream_history WHERE profile_id = :profileId
+                UNION ALL
+                SELECT stream_id, ended_at AS accessed_at
+                FROM learning_sessions
+                WHERE profile_id = :profileId AND is_designated = 1
+                  AND watched_duration_ms > 0
+            )
+            GROUP BY stream_id
+        ) recent_learning ON recent_learning.stream_id = streams.uid
+        LEFT JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
+        WHERE EXISTS (SELECT 1 FROM learning_content_streams
+                      WHERE learning_content_streams.stream_id = streams.uid)
+           OR EXISTS (
+               SELECT 1 FROM learning_content_sources
+               INNER JOIN playlists
+                 ON playlists.uid = learning_content_sources.local_playlist_id
+                AND playlists.profile_id = :profileId
+               INNER JOIN playlist_stream_join learning_playlist_join
+                 ON playlists.uid = learning_playlist_join.playlist_id
+               WHERE learning_content_sources.source_type = 'LOCAL_PLAYLIST'
+                 AND learning_playlist_join.stream_id = streams.uid
+           )
+        ORDER BY recent_learning.latest_access DESC, streams.uid DESC
+        LIMIT 1
+        """
+    )
+    fun observeLastLesson(profileId: String): Flowable<List<LearningLastLesson>>
 
     @Query(
         """
@@ -69,10 +128,13 @@ interface LearningDashboardDAO {
                0 AS note_count, 0 AS latest_note_update
         FROM streams
         INNER JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
         INNER JOIN playlist_stream_join ON streams.uid = playlist_stream_join.stream_id
         LEFT JOIN (
             SELECT stream_id, MAX(access_date) AS latest_access
-            FROM stream_history GROUP BY stream_id
+            FROM stream_history
+            WHERE profile_id = :profileId
+            GROUP BY stream_id
         ) recent_history ON streams.uid = recent_history.stream_id
         WHERE streams.duration > 0
           AND (
@@ -97,7 +159,10 @@ interface LearningDashboardDAO {
         LIMIT :limit
         """
     )
-    fun observeContinueLearning(limit: Int): Flowable<List<LearningDashboardStream>>
+    fun observeContinueLearning(
+        profileId: String,
+        limit: Int
+    ): Flowable<List<LearningDashboardStream>>
 
     @Query(
         """
@@ -106,6 +171,7 @@ interface LearningDashboardDAO {
                COALESCE(note_totals.latest_note_update, 0) AS latest_note_update
         FROM streams
         LEFT JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
         LEFT JOIN (
             SELECT stream_id, COUNT(*) AS note_count, MAX(updated_at) AS latest_note_update
             FROM learning_notes GROUP BY stream_id
@@ -134,7 +200,10 @@ interface LearningDashboardDAO {
         LIMIT :limit
         """
     )
-    fun observeLearningContent(limit: Int): Flowable<List<LearningDashboardStream>>
+    fun observeLearningContent(
+        profileId: String,
+        limit: Int
+    ): Flowable<List<LearningDashboardStream>>
 
     @Query(
         """
@@ -144,6 +213,7 @@ interface LearningDashboardDAO {
         FROM learning_notes
         INNER JOIN streams ON learning_notes.stream_id = streams.uid
         LEFT JOIN stream_state ON streams.uid = stream_state.stream_id
+         AND stream_state.profile_id = :profileId
         WHERE EXISTS (SELECT 1 FROM learning_content_streams
                       WHERE learning_content_streams.stream_id = streams.uid)
            OR EXISTS (
@@ -159,16 +229,19 @@ interface LearningDashboardDAO {
         LIMIT :limit
         """
     )
-    fun observeRecentlyAnnotated(limit: Int): Flowable<List<LearningDashboardStream>>
+    fun observeRecentlyAnnotated(
+        profileId: String,
+        limit: Int
+    ): Flowable<List<LearningDashboardStream>>
 
     @Query(
         """
         SELECT local_date, SUM(watched_duration_ms) AS watched_duration_ms
         FROM learning_sessions
-        WHERE is_designated = 1
+        WHERE profile_id = :profileId AND is_designated = 1
         GROUP BY local_date
         ORDER BY local_date
         """
     )
-    fun observeDailyStudyActivity(): Flowable<List<LearningDailyActivity>>
+    fun observeDailyStudyActivity(profileId: String): Flowable<List<LearningDailyActivity>>
 }

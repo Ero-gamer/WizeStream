@@ -17,12 +17,14 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.LayoutRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.chip.Chip
@@ -81,6 +83,7 @@ class LocalMediaFragment : Fragment() {
     private lateinit var browserViewModel: LocalMediaBrowserViewModel
     private var browserState = LocalMediaBrowserState()
     private var searchField: TextInputEditText? = null
+    private val exclusionStore by lazy { LocalMediaExclusionStore(requireContext()) }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -238,10 +241,21 @@ class LocalMediaFragment : Fragment() {
         loadOrExplainPermission()
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (view != null && ::adapter.isInitialized) {
+            GridLayoutManagerHelper.preserveScrollPosition(list) { applyItemViewMode() }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         ThemeHelper.setTitleToAppCompatActivity(activity, getString(R.string.local_media))
         if (::adapter.isInitialized) applyItemViewMode()
+        if (::viewModel.isInitialized) viewModel.refresh()
+        if (::browserViewModel.isInitialized && filter == Filter.BROWSE) {
+            browserViewModel.refresh()
+        }
         requireActivity().invalidateOptionsMenu()
     }
 
@@ -398,6 +412,14 @@ class LocalMediaFragment : Fragment() {
         if (!::adapter.isInitialized || filter == Filter.BROWSE) return
         val term = query.trim().lowercase(Locale.getDefault())
         if (
+            filter == Filter.ALL &&
+            groupAllMediaByFolder() &&
+            activeGroup == null
+        ) {
+            showAllMediaGroups(term)
+            return
+        }
+        if (
             filter == Filter.AUDIO &&
             audioCategory != LocalMediaAudioCategory.TRACKS &&
             activeGroup == null
@@ -453,6 +475,26 @@ class LocalMediaFragment : Fragment() {
         } else {
             view?.findViewById<View>(R.id.localMediaMessagePanel)?.visibility = View.GONE
         }
+    }
+
+    private fun groupAllMediaByFolder(): Boolean = PreferenceManager
+        .getDefaultSharedPreferences(requireContext())
+        .getBoolean(
+            getString(R.string.local_media_group_all_by_folder_key),
+            false
+        )
+
+    private fun showAllMediaGroups(term: String) {
+        val groups = LocalMediaVideoIndex.folders(
+            allItems,
+            getString(R.string.local_media_unknown_folder),
+            LocalMediaGroupKind.MEDIA_FOLDER
+        ).filter { group ->
+            term.isEmpty() || listOf(group.title, group.subtitle).any { value ->
+                value.lowercase(Locale.getDefault()).contains(term)
+            }
+        }
+        renderGroups(groups)
     }
 
     private fun showAudioGroups(term: String) {
@@ -559,14 +601,31 @@ class LocalMediaFragment : Fragment() {
             R.string.local_media_enqueue_next,
             R.string.add_to_playlist
         )
-        if (allowRemoval || location.path.isEmpty()) actions += R.string.local_media_remove_folder
+        if (location.path.isNotEmpty()) {
+            actions += R.string.local_media_ignore_folder
+        }
+        if (allowRemoval || location.path.isEmpty()) {
+            actions += R.string.local_media_remove_folder
+        }
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(title)
             .setItems(actions.map(::getString).toTypedArray()) { _, which ->
-                if (actions[which] == R.string.local_media_remove_folder) {
-                    browserViewModel.removeRoot(location.rootUri)
-                } else {
-                    collectFolderForAction(location, title, actions[which])
+                when (actions[which]) {
+                    R.string.local_media_remove_folder -> {
+                        browserViewModel.removeRoot(location.rootUri)
+                    }
+
+                    R.string.local_media_ignore_folder -> {
+                        exclusionStore.ignoreDocumentLocation(location)
+                        if (browserState.location == location) {
+                            browserViewModel.goBack()
+                        } else {
+                            browserViewModel.refresh()
+                        }
+                        showIgnoredConfirmation()
+                    }
+
+                    else -> collectFolderForAction(location, title, actions[which])
                 }
             }.show()
     }
@@ -644,7 +703,12 @@ class LocalMediaFragment : Fragment() {
             val minimumItemWidth = resources.getDimensionPixelSize(
                 R.dimen.video_item_grid_thumbnail_image_width
             ) + resources.getDimensionPixelSize(R.dimen.video_item_search_padding) * 2
-            GridLayoutManagerHelper.create(list, minimumItemWidth)
+            GridLayoutManagerHelper.create(
+                list,
+                minimumItemWidth,
+                GridLayoutManagerHelper.getPreferredSpanCount(requireContext()),
+                null
+            )
         } else {
             LinearLayoutManager(requireContext())
         }
@@ -691,21 +755,52 @@ class LocalMediaFragment : Fragment() {
 
     private fun showActiveGroupActions() {
         val group = activeGroup ?: return
-        val actions = arrayOf(
-            getString(R.string.local_media_play_background),
-            getString(R.string.enqueue),
-            getString(R.string.local_media_enqueue_next),
-            getString(R.string.add_to_playlist)
+        val actions = mutableListOf(
+            R.string.local_media_play_background,
+            R.string.enqueue,
+            R.string.local_media_enqueue_next,
+            R.string.add_to_playlist
         )
+        if (
+            group.kind == LocalMediaGroupKind.VIDEO_FOLDER ||
+            group.kind == LocalMediaGroupKind.MEDIA_FOLDER
+        ) {
+            actions += R.string.local_media_ignore_folder
+        }
+
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(group.title)
-            .setItems(actions) { _, which ->
-                val queue = LocalMediaGroupQueueBuilder.queue(group, shuffle = false)
-                when (which) {
-                    0 -> NavigationHelper.playOnBackgroundPlayer(requireContext(), queue, true)
-                    1 -> NavigationHelper.enqueueOnPlayer(requireContext(), queue)
-                    2 -> NavigationHelper.enqueueNextOnPlayer(requireContext(), queue)
-                    3 -> addGroupToPlaylist(group)
+            .setItems(actions.map(::getString).toTypedArray()) { _, which ->
+                when (actions[which]) {
+                    R.string.local_media_ignore_folder -> {
+                        group.items.firstOrNull()?.let(exclusionStore::ignoreMediaFolder)
+                        activeGroup = null
+                        viewModel.refresh()
+                        showIgnoredConfirmation()
+                    }
+
+                    else -> {
+                        val queue = LocalMediaGroupQueueBuilder.queue(group, shuffle = false)
+                        when (actions[which]) {
+                            R.string.local_media_play_background -> {
+                                NavigationHelper.playOnBackgroundPlayer(
+                                    requireContext(),
+                                    queue,
+                                    true
+                                )
+                            }
+
+                            R.string.enqueue -> {
+                                NavigationHelper.enqueueOnPlayer(requireContext(), queue)
+                            }
+
+                            R.string.local_media_enqueue_next -> {
+                                NavigationHelper.enqueueNextOnPlayer(requireContext(), queue)
+                            }
+
+                            R.string.add_to_playlist -> addGroupToPlaylist(group)
+                        }
+                    }
                 }
             }.show()
     }
@@ -722,27 +817,35 @@ class LocalMediaFragment : Fragment() {
     }
 
     private fun showActions(item: LocalMediaItem) {
-        val actions = arrayOf(
-            getString(R.string.play),
-            getString(R.string.local_media_play_background),
-            getString(R.string.enqueue),
-            getString(R.string.local_media_enqueue_next),
-            getString(R.string.add_to_playlist)
+        val actions = mutableListOf(
+            R.string.play,
+            R.string.local_media_play_background,
+            R.string.enqueue,
+            R.string.local_media_enqueue_next,
+            R.string.add_to_playlist,
+            R.string.local_media_ignore_item
         )
+        if (item.mediaStoreId >= 0 && item.relativePath.isNotBlank()) {
+            actions += R.string.local_media_ignore_folder
+        }
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(item.title)
-            .setItems(actions) { _, which ->
+            .setItems(actions.map(::getString).toTypedArray()) { _, which ->
                 val queue = LocalMediaPlayQueue(listOf(item.toPlayQueueItem()), 0)
-                when (which) {
-                    0 -> play(item)
+                when (actions[which]) {
+                    R.string.play -> play(item)
 
-                    1 -> NavigationHelper.playOnBackgroundPlayer(requireContext(), queue, true)
+                    R.string.local_media_play_background -> {
+                        NavigationHelper.playOnBackgroundPlayer(requireContext(), queue, true)
+                    }
 
-                    2 -> NavigationHelper.enqueueOnPlayer(requireContext(), queue)
+                    R.string.enqueue -> NavigationHelper.enqueueOnPlayer(requireContext(), queue)
 
-                    3 -> NavigationHelper.enqueueNextOnPlayer(requireContext(), queue)
+                    R.string.local_media_enqueue_next -> {
+                        NavigationHelper.enqueueNextOnPlayer(requireContext(), queue)
+                    }
 
-                    4 -> disposables.add(
+                    R.string.add_to_playlist -> disposables.add(
                         PlaylistDialog.createCorrespondingDialog(
                             requireContext(),
                             listOf(StreamEntity(item.toPlayQueueItem()))
@@ -750,8 +853,30 @@ class LocalMediaFragment : Fragment() {
                             dialog.show(parentFragmentManager, "LocalMediaPlaylist")
                         }
                     )
+
+                    R.string.local_media_ignore_item -> {
+                        exclusionStore.ignoreItem(item)
+                        viewModel.refresh()
+                        browserViewModel.refresh()
+                        showIgnoredConfirmation()
+                    }
+
+                    R.string.local_media_ignore_folder -> {
+                        exclusionStore.ignoreMediaFolder(item)
+                        activeGroup = null
+                        viewModel.refresh()
+                        showIgnoredConfirmation()
+                    }
                 }
             }.show()
+    }
+
+    private fun showIgnoredConfirmation() {
+        Toast.makeText(
+            requireContext(),
+            R.string.local_media_ignored_confirmation,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun showSortDialog() {
@@ -806,10 +931,10 @@ private class LocalMediaGroupAdapter(
         private val subtitle = view.findViewById<TextView>(R.id.localMediaGroupItemSubtitle)
 
         fun bind(group: LocalMediaGroup) {
-            val countPlural = if (group.kind == LocalMediaGroupKind.VIDEO_FOLDER) {
-                R.plurals.videos
-            } else {
-                R.plurals.local_media_track_count
+            val countPlural = when (group.kind) {
+                LocalMediaGroupKind.VIDEO_FOLDER -> R.plurals.videos
+                LocalMediaGroupKind.MEDIA_FOLDER -> R.plurals.local_media_item_count
+                else -> R.plurals.local_media_track_count
             }
             val count = itemView.resources.getQuantityString(
                 countPlural,

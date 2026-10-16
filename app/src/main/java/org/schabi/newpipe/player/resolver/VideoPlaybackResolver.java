@@ -1,19 +1,16 @@
 package org.schabi.newpipe.player.resolver;
 
 import android.content.Context;
-import android.net.Uri;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import androidx.media3.common.C;
-import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.MergingMediaSource;
 
-import org.schabi.newpipe.extractor.MediaFormat;
 import org.schabi.newpipe.extractor.ServiceList;
+import org.schabi.newpipe.extractor.services.youtube.invidious.InvidiousBackend;
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeCaptionTranslationHelper;
 import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
@@ -31,9 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-import static androidx.media3.common.C.TIME_UNSET;
 import static org.schabi.newpipe.util.ListHelper.getFilteredAudioStreams;
-import static org.schabi.newpipe.util.ListHelper.getUrlAndNonTorrentStreams;
 import static org.schabi.newpipe.util.ListHelper.getPlayableStreams;
 
 public class VideoPlaybackResolver implements PlaybackResolver {
@@ -49,10 +44,16 @@ public class VideoPlaybackResolver implements PlaybackResolver {
 
     @Nullable
     private String playbackQuality;
+    private boolean autoQualitySelected;
+    private boolean adaptiveQualityActive;
     @Nullable
     private String audioTrack;
     @Nullable
     private RejectedVideoStream rejectedVideoStream;
+    @Nullable
+    private RejectedVideoCodecFamily rejectedVideoCodecFamily;
+    @Nullable
+    private String hlsFallbackStreamUrl;
 
     public enum SourceType {
         LIVE_STREAM,
@@ -84,50 +85,102 @@ public class VideoPlaybackResolver implements PlaybackResolver {
     @Nullable
     public MediaSource resolve(@NonNull final StreamInfo info,
                                @Nullable final String qualityOverride) {
-        final MediaSource liveSource = PlaybackResolver.maybeBuildLiveMediaSource(dataSource, info);
+        final boolean autoRequested = qualityOverride == null
+                ? qualityResolver.isDefaultAutoQuality()
+                : qualityResolver.isAutoQuality(qualityOverride);
+        autoQualitySelected = autoRequested;
+        adaptiveQualityActive = false;
+
+        final MediaSource liveSource = resolveLiveSource(info);
         if (liveSource != null) {
             streamSourceType = SourceType.LIVE_STREAM;
+            adaptiveQualityActive = autoRequested;
             return liveSource;
         }
 
         final List<MediaSource> mediaSources = new ArrayList<>();
 
-        // Create video stream source
         final Integer rejectedItag = consumeRejectedItag(info.getUrl());
-        final List<VideoStream> playableVideoStreams = withoutRejectedItag(
-                getPlayableStreams(info.getVideoStreams(), info.getServiceId()), rejectedItag);
-        final List<VideoStream> playableVideoOnlyStreams = withoutRejectedItag(
-                getPlayableStreams(info.getVideoOnlyStreams(), info.getServiceId()), rejectedItag);
+        final String rejectedCodecFamily = getRejectedCodecFamily(info.getUrl());
+        final List<VideoStream> playableVideoStreams = withoutRejectedCodecFamily(
+                withoutRejectedItag(
+                        getPlayableStreams(info.getVideoStreams(), info.getServiceId()),
+                        rejectedItag),
+                rejectedCodecFamily);
+        final List<VideoStream> playableVideoOnlyStreams = withoutRejectedCodecFamily(
+                withoutRejectedItag(
+                        getPlayableStreams(info.getVideoOnlyStreams(), info.getServiceId()),
+                        rejectedItag),
+                rejectedCodecFamily);
         final List<VideoStream> videoStreamsList = ListHelper.getSortedStreamVideosList(context,
                 playableVideoStreams, playableVideoOnlyStreams, false, true);
         if (rejectedItag != null) {
             Log.w(TAG, "Falling back from rejected YouTube video itag " + rejectedItag);
         }
-        final List<AudioStream> audioStreamsList =
-                getFilteredAudioStreams(context, info.getAudioStreams());
-
-        final int videoIndex;
-        if (videoStreamsList.isEmpty()) {
-            videoIndex = -1;
-        } else if (qualityOverride == null) {
-            videoIndex = qualityResolver.getDefaultResolutionIndex(videoStreamsList);
-        } else {
-            videoIndex = qualityResolver.getOverrideResolutionIndex(videoStreamsList,
-                    qualityOverride);
+        if (rejectedCodecFamily != null) {
+            Log.w(TAG, "Falling back from rejected video codec family "
+                    + rejectedCodecFamily);
         }
 
+        final List<AudioStream> audioStreamsList =
+                getFilteredAudioStreams(context, info.getAudioStreams());
         final int audioIndex =
                 ListHelper.getAudioFormatIndex(context, audioStreamsList, audioTrack);
-        final MediaItemTag tag =
-                StreamInfoTag.of(info, videoStreamsList, videoIndex, audioStreamsList, audioIndex);
-        @Nullable final VideoStream video = tag.getMaybeQuality()
-                .map(MediaItemTag.Quality::getSelectedVideoStream)
-                .orElse(null);
-        @Nullable final AudioStream audio = tag.getMaybeAudioTrack()
+
+        final List<VideoStream> adaptiveCandidates = autoRequested
+                && info.getServiceId() == ServiceList.YouTube.getServiceId()
+                ? AdaptiveVideoQuality.youtubeCandidates(context, videoStreamsList)
+                : List.of();
+        final boolean useAdaptiveSource = adaptiveCandidates.size() >= 2;
+
+        int videoIndex = -1;
+        if (!videoStreamsList.isEmpty() && !useAdaptiveSource) {
+            if (autoRequested) {
+                if (adaptiveCandidates.size() == 1) {
+                    videoIndex = videoStreamsList.indexOf(adaptiveCandidates.get(0));
+                }
+                if (videoIndex < 0) {
+                    videoIndex = qualityResolver.getAutoFallbackResolutionIndex(videoStreamsList);
+                }
+            } else if (qualityOverride == null) {
+                videoIndex = qualityResolver.getDefaultResolutionIndex(videoStreamsList);
+            } else {
+                videoIndex = qualityResolver.getOverrideResolutionIndex(
+                        videoStreamsList, qualityOverride);
+            }
+        }
+
+        MediaItemTag tag = useAdaptiveSource
+                ? StreamInfoTag.adaptive(info, videoStreamsList, audioStreamsList, audioIndex)
+                : StreamInfoTag.of(
+                        info, videoStreamsList, videoIndex, audioStreamsList, audioIndex);
+        @Nullable VideoStream video = useAdaptiveSource
+                ? adaptiveCandidates.get(0)
+                : tag.getMaybeQuality()
+                        .map(MediaItemTag.Quality::getSelectedVideoStream)
+                        .orElse(null);
+        final AudioStream audio = tag.getMaybeAudioTrack()
                 .map(MediaItemTag.AudioTrack::getSelectedAudioStream)
                 .orElse(null);
 
-        if (video != null) {
+        if (useAdaptiveSource) {
+            try {
+                mediaSources.add(PlaybackResolver.buildYoutubeAdaptiveVideoMediaSource(
+                        dataSource, adaptiveCandidates, info, tag));
+                adaptiveQualityActive = true;
+            } catch (final ResolverException e) {
+                Log.w(TAG, "Unable to create adaptive video source; using fixed fallback", e);
+                adaptiveQualityActive = false;
+                videoIndex = qualityResolver.getAutoFallbackResolutionIndex(videoStreamsList);
+                tag = StreamInfoTag.of(
+                        info, videoStreamsList, videoIndex, audioStreamsList, audioIndex);
+                video = tag.getMaybeQuality()
+                        .map(MediaItemTag.Quality::getSelectedVideoStream)
+                        .orElse(null);
+            }
+        }
+
+        if (!adaptiveQualityActive && video != null) {
             try {
                 final MediaSource streamSource = PlaybackResolver.buildMediaSource(
                         dataSource, video, info, PlaybackResolver.cacheKeyOf(info, video), tag);
@@ -138,8 +191,6 @@ public class VideoPlaybackResolver implements PlaybackResolver {
             }
         }
 
-        // Use the audio stream if there is no video stream, or
-        // merge with audio stream in case if video does not contain audio
         if (audio != null && (video == null || video.isVideoOnly() || audioTrack != null)) {
             try {
                 final MediaSource audioSource = PlaybackResolver.buildMediaSource(
@@ -154,15 +205,12 @@ public class VideoPlaybackResolver implements PlaybackResolver {
             streamSourceType = SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
         }
 
-        // If there is no audio or video sources, then this media source cannot be played back
         if (mediaSources.isEmpty()) {
             return null;
         }
 
-        // Below are auxiliary media sources
-
         // Create subtitle sources. StreamInfo is cached, but the translation preference can change
-        // afterwards, so synthesize the one requested YouTube translation at resolution time too.
+        // afterwards, so synthesize the requested YouTube translation at resolution time too.
         final List<SubtitlesStream> subtitlesStreams = info.getSubtitles() == null
                 ? null : new ArrayList<>(info.getSubtitles());
         if (subtitlesStreams != null
@@ -172,34 +220,22 @@ public class VideoPlaybackResolver implements PlaybackResolver {
                     CaptionTranslationPreferences.getTargetLanguage(context));
         }
         if (subtitlesStreams != null) {
-            // Torrent and non URL subtitles are not supported by ExoPlayer
-            final List<SubtitlesStream> nonTorrentAndUrlStreams = getUrlAndNonTorrentStreams(
-                    subtitlesStreams);
-            for (final SubtitlesStream subtitle : nonTorrentAndUrlStreams) {
-                final MediaFormat mediaFormat = subtitle.getFormat();
-                if (mediaFormat != null) {
-                    @C.RoleFlags final int textRoleFlag = subtitle.isAutoGenerated()
-                            ? C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND
-                            : C.ROLE_FLAG_CAPTION;
-                    final MediaItem.SubtitleConfiguration textMediaItem =
-                            new MediaItem.SubtitleConfiguration.Builder(
-                                    Uri.parse(subtitle.getContent()))
-                                    .setMimeType(mediaFormat.getMimeType())
-                                    .setRoleFlags(textRoleFlag)
-                                    .setLanguage(PlayerHelper.captionLanguageOf(context, subtitle))
-                                    .build();
-                    final MediaSource textSource = dataSource.getSingleSampleMediaSourceFactory()
-                            .createMediaSource(textMediaItem, TIME_UNSET);
+            for (final SubtitlesStream subtitle : subtitlesStreams) {
+                final MediaSource textSource = SubtitlePlaybackSource.create(
+                        subtitle, PlayerHelper.captionLanguageOf(context, subtitle),
+                        info.getServiceId() == ServiceList.YouTube.getServiceId()
+                                && InvidiousBackend.isEnabled()
+                                ? dataSource.getSingleSampleMediaSourceFactory(true)
+                                : dataSource.getSingleSampleMediaSourceFactory());
+                if (textSource != null) {
                     mediaSources.add(textSource);
                 }
             }
         }
 
-        if (mediaSources.size() == 1) {
-            return mediaSources.get(0);
-        } else {
-            return new MergingMediaSource(true, mediaSources.toArray(new MediaSource[0]));
-        }
+        return mediaSources.size() == 1
+                ? mediaSources.get(0)
+                : new MergingMediaSource(true, mediaSources.toArray(new MediaSource[0]));
     }
 
     /**
@@ -213,12 +249,38 @@ public class VideoPlaybackResolver implements PlaybackResolver {
     }
 
     @Nullable
+    private MediaSource resolveLiveSource(@NonNull final StreamInfo info) {
+        return PlaybackResolver.maybeBuildLiveMediaSource(
+                dataSource, info, isHlsPreferredForLiveStream(info.getUrl()));
+    }
+
+    public void preferHlsForLiveStream(@NonNull final String streamUrl) {
+        hlsFallbackStreamUrl = streamUrl;
+    }
+
+    public boolean isHlsPreferredForLiveStream(@NonNull final String streamUrl) {
+        return streamUrl.equals(hlsFallbackStreamUrl);
+    }
+
+    public void clearLiveHlsFallback() {
+        hlsFallbackStreamUrl = null;
+    }
+
+    @Nullable
     public String getPlaybackQuality() {
         return playbackQuality;
     }
 
     public void setPlaybackQuality(@Nullable final String playbackQuality) {
         this.playbackQuality = playbackQuality;
+    }
+
+    public boolean isAutoQualitySelected() {
+        return autoQualitySelected;
+    }
+
+    public boolean isAdaptiveQualityActive() {
+        return adaptiveQualityActive;
     }
 
     @Nullable
@@ -232,7 +294,43 @@ public class VideoPlaybackResolver implements PlaybackResolver {
 
     public synchronized void rejectVideoStreamOnce(@NonNull final String streamUrl,
                                                     final int itag) {
-        rejectedVideoStream = new RejectedVideoStream(streamUrl, itag);
+        rejectedVideoStream = new RejectedVideoStream(streamUrl, itag, true);
+    }
+
+    /**
+     * Keep a server-rejected format excluded while retrying the current queue item.
+     * @param streamUrl canonical URL identifying the current item
+     * @param itag rejected video format
+     */
+    public synchronized void rejectVideoStreamForCurrentItem(@NonNull final String streamUrl,
+                                                             final int itag) {
+        rejectedVideoStream = new RejectedVideoStream(streamUrl, itag, false);
+    }
+
+    public synchronized void clearRejectedVideoStream() {
+        rejectedVideoStream = null;
+    }
+
+    /**
+     * Exclude a codec family while resolving the current stream after a decoder failure.
+     *
+     * @param streamUrl canonical stream URL the rejection belongs to
+     * @param codec codec string whose family should be excluded
+     */
+    public synchronized void rejectVideoCodecFamilyForStream(
+            @NonNull final String streamUrl,
+            @Nullable final String codec) {
+        final String codecFamily = AdaptiveVideoQuality.codecFamily(codec);
+        if (!codecFamily.isEmpty()) {
+            rejectedVideoCodecFamily = new RejectedVideoCodecFamily(streamUrl, codecFamily);
+        }
+    }
+
+    /**
+     * Clear any codec-family exclusion retained for decoder recovery.
+     */
+    public synchronized void clearRejectedVideoCodecFamily() {
+        rejectedVideoCodecFamily = null;
     }
 
     @Nullable
@@ -242,8 +340,19 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         }
 
         final int itag = rejectedVideoStream.itag;
-        rejectedVideoStream = null;
+        if (rejectedVideoStream.consumeOnResolve) {
+            rejectedVideoStream = null;
+        }
         return itag;
+    }
+
+    @Nullable
+    private synchronized String getRejectedCodecFamily(@NonNull final String streamUrl) {
+        if (rejectedVideoCodecFamily == null
+                || !rejectedVideoCodecFamily.streamUrl.equals(streamUrl)) {
+            return null;
+        }
+        return rejectedVideoCodecFamily.codecFamily;
     }
 
     @NonNull
@@ -258,14 +367,65 @@ public class VideoPlaybackResolver implements PlaybackResolver {
                 .collect(Collectors.toList());
     }
 
+    @NonNull
+    private static List<VideoStream> withoutRejectedCodecFamily(
+            @NonNull final List<VideoStream> streams,
+            @Nullable final String rejectedCodecFamily) {
+        if (rejectedCodecFamily == null || rejectedCodecFamily.isEmpty()) {
+            return streams;
+        }
+        return streams.stream()
+                .filter(stream -> !rejectedCodecFamily.equals(
+                        AdaptiveVideoQuality.codecFamily(stream.getCodec())))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Check whether playback metadata contains a video stream from another codec family.
+     *
+     * @param streams candidate video streams for the current item
+     * @param codec codec family currently failing
+     * @return whether at least one non-empty different codec family is available
+     */
+    public static boolean hasAlternativeCodecFamily(
+            @NonNull final List<VideoStream> streams,
+            @Nullable final String codec) {
+        final String rejectedCodecFamily = AdaptiveVideoQuality.codecFamily(codec);
+        if (rejectedCodecFamily.isEmpty()) {
+            return false;
+        }
+
+        return streams.stream()
+                .map(VideoStream::getCodec)
+                .map(AdaptiveVideoQuality::codecFamily)
+                .anyMatch(codecFamily -> !codecFamily.isEmpty()
+                        && !rejectedCodecFamily.equals(codecFamily));
+    }
+
     private static final class RejectedVideoStream {
         @NonNull
         private final String streamUrl;
         private final int itag;
+        private final boolean consumeOnResolve;
 
-        private RejectedVideoStream(@NonNull final String streamUrl, final int itag) {
+        private RejectedVideoStream(@NonNull final String streamUrl, final int itag,
+                                    final boolean consumeOnResolve) {
             this.streamUrl = streamUrl;
             this.itag = itag;
+            this.consumeOnResolve = consumeOnResolve;
+        }
+    }
+
+    private static final class RejectedVideoCodecFamily {
+        @NonNull
+        private final String streamUrl;
+        @NonNull
+        private final String codecFamily;
+
+        private RejectedVideoCodecFamily(@NonNull final String streamUrl,
+                                         @NonNull final String codecFamily) {
+            this.streamUrl = streamUrl;
+            this.codecFamily = codecFamily;
         }
     }
 
@@ -273,5 +433,11 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         int getDefaultResolutionIndex(List<VideoStream> sortedVideos);
 
         int getOverrideResolutionIndex(List<VideoStream> sortedVideos, String playbackQuality);
+
+        int getAutoFallbackResolutionIndex(List<VideoStream> sortedVideos);
+
+        boolean isDefaultAutoQuality();
+
+        boolean isAutoQuality(String playbackQuality);
     }
 }

@@ -28,6 +28,7 @@ import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
 import org.schabi.newpipe.local.subscription.SubscriptionsImportExportHelper;
+import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.settings.export.BackupFileLocator;
 import org.schabi.newpipe.settings.export.ImportExportManager;
 import org.schabi.newpipe.settings.export.NewPipeCompatibleExportManager;
@@ -414,8 +415,8 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
         final List<MigrationOption> optionTypes = new ArrayList<>();
         if (preview.getHasSubscriptions()) {
             optionLabels.add(getString(
-                    R.string.migration_subscriptions_option,
-                    preview.getSubscriptions()));
+                    R.string.migration_subscriptions_groups_option,
+                    preview.getSubscriptions(), preview.getChannelGroups()));
             optionTypes.add(MigrationOption.SUBSCRIPTIONS);
         }
         if (preview.getHasHistory()) {
@@ -516,12 +517,13 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
             final Uri importDataUri,
             final Map<String, ?> sourcePreferences,
             final NewPipeDataMigrationManager.Selection selection) {
+        final String targetProfileId = ProfileManager.getActiveProfileId(requireContext());
         final ExecutorService executor = Executors.newSingleThreadExecutor();
         executor.execute(() -> {
             try {
                 final NewPipeDataMigrationManager.Result migrationResult =
                         migrationManager.importData(
-                                stagedDatabase, selection, sourcePreferences);
+                                stagedDatabase, selection, sourcePreferences, targetProfileId);
                 if (getActivity() != null) {
                     requireActivity().runOnUiThread(() -> {
                         saveLastImportExportDataUri(importDataUri);
@@ -536,7 +538,9 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
                                         migrationResult.getSubscriptions(),
                                         migrationResult.getCompatibleSettings(),
                                         migrationResult.getSponsorBlockSettings(),
-                                        migrationResult.getSkippedItems()))
+                                        migrationResult.getSkippedItems()) + "\n" + getString(
+                                        R.string.migration_groups_complete,
+                                        migrationResult.getChannelGroups()))
                                 .setPositiveButton(R.string.ok, null)
                                 .show();
                     });
@@ -572,12 +576,13 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
 
     private void exportNewPipeCompatibleData(final StoredFileHelper file,
                                              final Uri exportDataUri) {
+        final String profileId = ProfileManager.getActiveProfileId(requireContext());
         final ExecutorService executor = Executors.newSingleThreadExecutor();
         executor.execute(() -> {
             try {
                 NewPipeDatabase.checkpoint();
                 final NewPipeCompatibleExportManager.ExportResult exportResult =
-                        compatibleExportManager.export(file);
+                        compatibleExportManager.export(file, profileId);
                 if (getActivity() != null) {
                     requireActivity().runOnUiThread(() -> {
                         saveLastImportExportDataUri(exportDataUri);
@@ -716,9 +721,6 @@ public class BackupRestoreSettingsFragment extends BasePreferenceFragment {
 
                 if (contents.getHasDatabase()) {
                     stagedDatabase = manager.stageDb(file);
-                    if (stagedDatabase == null) {
-                        throw new IOException("The backup database could not be staged");
-                    }
                     NewPipeDatabase.validateImportDatabase(
                             context, stagedDatabase.getFileName().toString());
                     try {

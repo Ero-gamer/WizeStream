@@ -23,6 +23,10 @@ class LearningNoteManager(context: Context) {
     private val streamDao = database.streamDAO()
     private val syncRecorder = HistorySyncRecorder.get(context.applicationContext)
 
+    fun ensureStream(info: StreamInfo): Single<Long> = Single.fromCallable {
+        streamDao.upsert(StreamEntity(info))
+    }.subscribeOn(Schedulers.io())
+
     fun create(info: StreamInfo, timestampMillis: Long, noteText: String): Single<LearningNoteEntity> {
         return Single.fromCallable {
             database.runInTransaction<LearningNoteEntity> {
@@ -41,6 +45,23 @@ class LearningNoteManager(context: Context) {
             }
         }.subscribeOn(Schedulers.io())
     }
+
+    fun createForStream(streamId: Long, timestampMillis: Long, noteText: String): Single<LearningNoteEntity> = Single.fromCallable {
+        database.runInTransaction<LearningNoteEntity> {
+            val now = System.currentTimeMillis()
+            val note = LearningNoteEntity(
+                UUID.randomUUID().toString(),
+                streamId,
+                timestampMillis.coerceAtLeast(0),
+                validateText(noteText),
+                now,
+                now
+            )
+            noteDao.upsert(note)
+            syncRecorder.recordLearningNoteUpsert(note.noteId)
+            note
+        }
+    }.subscribeOn(Schedulers.io())
 
     fun update(
         note: LearningNoteEntity,
@@ -66,6 +87,17 @@ class LearningNoteManager(context: Context) {
             val note = noteDao.getNote(noteId) ?: return@runInTransaction
             syncRecorder.recordLearningNoteDelete(note)
             noteDao.delete(noteId)
+        }
+    }.subscribeOn(Schedulers.io())
+
+    fun deleteNotes(noteIds: List<String>): Completable = Completable.fromAction {
+        database.runInTransaction {
+            noteIds.distinct().forEach { noteId ->
+                noteDao.getNote(noteId)?.let { note ->
+                    syncRecorder.recordLearningNoteDelete(note)
+                    noteDao.delete(noteId)
+                }
+            }
         }
     }.subscribeOn(Schedulers.io())
 

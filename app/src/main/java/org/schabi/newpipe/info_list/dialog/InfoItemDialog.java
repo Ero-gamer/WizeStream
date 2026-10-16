@@ -7,13 +7,18 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Build;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import androidx.preference.PreferenceManager;
+
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.schabi.newpipe.App;
 import org.schabi.newpipe.R;
@@ -27,6 +32,7 @@ import org.schabi.newpipe.learning.LearningMode;
 import org.schabi.newpipe.learning.LearningContentManager;
 import org.schabi.newpipe.player.helper.PlayerHolder;
 import org.schabi.newpipe.util.StreamTypeUtil;
+import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.util.external_communication.KoreUtils;
 
 import java.util.ArrayList;
@@ -54,8 +60,12 @@ public final class InfoItemDialog {
                            @NonNull final StreamInfoItem info,
                            @NonNull final List<StreamDialogEntry> entries) {
 
-        // Create the dialog's title
-        final View bannerView = View.inflate(activity, R.layout.dialog_title, null);
+        final Context dialogContext = new ContextThemeWrapper(
+                activity, ThemeHelper.getDialogTheme(activity));
+
+        // Create the dialog's title using the same themed context as the action rows.
+        final View bannerView = LayoutInflater.from(dialogContext)
+                .inflate(R.layout.dialog_title, null);
         bannerView.setSelected(true);
 
         final TextView titleView = bannerView.findViewById(R.id.itemTitleView);
@@ -77,9 +87,19 @@ public final class InfoItemDialog {
         final DialogInterface.OnClickListener action = (d, index) ->
             entries.get(index).action.onClick(fragment, info);
 
-        dialog = new AlertDialog.Builder(activity)
+        // AlertDialog's stock list item can fall back to legacy typography. Use an explicit
+        // Material 3 BodyLarge row so the stream action popup matches the rest of WizeStream.
+        final ArrayAdapter<String> actionAdapter = new ArrayAdapter<>(
+                dialogContext,
+                R.layout.dialog_stream_action_item,
+                android.R.id.text1,
+                items);
+
+        dialog = new MaterialAlertDialogBuilder(
+                dialogContext,
+                R.style.ThemeOverlay_wizestream_StreamActionDialog)
                 .setCustomTitle(bannerView)
-                .setItems(items, action)
+                .setAdapter(actionAdapter, action)
                 .create();
 
     }
@@ -115,6 +135,7 @@ public final class InfoItemDialog {
          *     | ENQUEUE_NEXT                               |
          *     | START_ON_BACKGROUND                        |
          *     | START_ON_POPUP                             |
+         *     | MARK_AS_WATCHED                            |
          *     + - - - - - - - - - - - - - - - - - - - - - -+
          *     | entries added manually with                |
          *     | addEntry() and addAllEntries()             |
@@ -206,6 +227,7 @@ public final class InfoItemDialog {
             this.addDefaultEntriesAutomatically = addDefaultEntriesAutomatically;
             if (addDefaultEntriesAutomatically) {
                 addDefaultBeginningEntries();
+                addMarkAsWatchedEntryIfNeeded();
             }
         }
 
@@ -345,8 +367,12 @@ public final class InfoItemDialog {
          * @return the current {@link Builder} instance
          */
         public Builder addDefaultEndEntries() {
+            addEntry(StreamDialogDefaultEntry.DOWNLOAD);
+            if (org.schabi.newpipe.download.ExternalDownloader.isEnabled(context)
+                    && infoItem.getServiceId() >= 0) {
+                addEntry(StreamDialogDefaultEntry.DOWNLOAD_EXTERNALLY);
+            }
             addAllEntries(
-                    StreamDialogDefaultEntry.DOWNLOAD,
                     StreamDialogDefaultEntry.APPEND_PLAYLIST,
                     StreamDialogDefaultEntry.COPY_TITLE,
                     StreamDialogDefaultEntry.SHARE,
@@ -356,7 +382,10 @@ public final class InfoItemDialog {
             );
             addPlayWithKodiEntryIfNeeded();
             addLearningContentEntryIfNeeded();
-            addMarkAsWatchedEntryIfNeeded();
+            if (infoItem.getServiceId() >= 0) {
+                addEntry(StreamDialogDefaultEntry.SUBSCRIBE_CHANNEL);
+                addEntry(StreamDialogDefaultEntry.CHANNEL_GROUPS);
+            }
             addEntry(StreamDialogDefaultEntry.SHOW_CHANNEL_DETAILS);
             return this;
         }

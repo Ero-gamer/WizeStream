@@ -23,8 +23,9 @@
         tools:ignore="RtlHardcoded"
         tools:src="@tools:sample/avatars" />
 
-    <TextView
+    <org.schabi.newpipe.views.MediaTextView
         android:id="@+id/itemTitleView"
+        app:mediaTextRole="channelName"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="@dimen/spacing_mid"
@@ -32,8 +33,6 @@
         android:lines="1"
         android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
         android:textColor="?attr/colorOnSurface"
-        android:textSize="@dimen/video_item_search_title_text_size"
-        android:textStyle="normal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/itemThumbnailView"
         app:layout_constraintTop_toTopOf="@id/itemThumbnailView"
@@ -50,7 +49,6 @@
         android:maxLines="8"
         android:textAppearance="@style/TextAppearance.Material3.BodySmall"
         android:textColor="?attr/colorOnSurfaceVariant"
-        android:textSize="@dimen/video_item_search_upload_date_text_size"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="@id/itemTitleView"
         app:layout_constraintTop_toBottomOf="@id/itemTitleView"
@@ -66,8 +64,6 @@
         android:lines="2"
         android:textAppearance="@style/TextAppearance.Material3.BodySmall"
         android:textColor="?attr/colorOnSurfaceVariant"
-        android:textSize="@dimen/video_item_search_upload_date_text_size"
-        android:textStyle="normal"
         app:layout_constraintEnd_toEndOf="@id/itemThumbnailView"
         app:layout_constraintStart_toStartOf="@id/itemThumbnailView"
         app:layout_constraintTop_toBottomOf="@id/itemThumbnailView"

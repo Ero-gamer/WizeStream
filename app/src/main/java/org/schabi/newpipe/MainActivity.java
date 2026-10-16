@@ -21,6 +21,7 @@
 package org.schabi.newpipe;
 
 import android.app.AlertDialog;
+import android.app.PictureInPictureUiState;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -44,6 +45,7 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.FrameLayout;
 import android.widget.Spinner;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -61,6 +63,7 @@ import androidx.fragment.app.FragmentManager;
 import androidx.preference.PreferenceManager;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.navigation.NavigationBarView;
 
 import org.schabi.newpipe.about.changelog.ChangelogActivity;
@@ -84,12 +87,15 @@ import org.schabi.newpipe.fragments.list.comments.CommentRepliesFragment;
 import org.schabi.newpipe.fragments.list.search.SearchFragment;
 import org.schabi.newpipe.local.feed.notifications.NotificationWorker;
 import org.schabi.newpipe.learning.LearningMode;
+import org.schabi.newpipe.learning.LearningReminders;
 import org.schabi.newpipe.player.Player;
 import org.schabi.newpipe.player.gesture.CustomBottomSheetBehavior;
 import org.schabi.newpipe.player.event.OnKeyDownListener;
 import org.schabi.newpipe.player.helper.PlayerHolder;
 import org.schabi.newpipe.player.pip.NativePipController;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
+import org.schabi.newpipe.profiles.ProfileManager;
+import org.schabi.newpipe.profiles.ProfileRecord;
 import org.schabi.newpipe.settings.UpdateSettingsFragment;
 import org.schabi.newpipe.settings.tabs.DrawerServiceSectionsPolicy;
 import org.schabi.newpipe.settings.tabs.HomeDestinationKey;
@@ -101,6 +107,8 @@ import org.schabi.newpipe.settings.tabs.Tab;
 import org.schabi.newpipe.settings.tabs.TabletNavigationPositionResolver;
 import org.schabi.newpipe.settings.tabs.TabsManager;
 import org.schabi.newpipe.settings.migration.MigrationManager;
+import org.schabi.newpipe.sync.DeviceSyncListenerService;
+import org.schabi.newpipe.support.GitHubStarPromptController;
 import org.schabi.newpipe.util.Constants;
 import org.schabi.newpipe.util.DeviceUtils;
 import org.schabi.newpipe.util.EdgeToEdgeHelper;
@@ -114,11 +122,11 @@ import org.schabi.newpipe.util.SerializedCache;
 import org.schabi.newpipe.util.ServiceHelper;
 import org.schabi.newpipe.util.StateSaver;
 import org.schabi.newpipe.util.ThemeHelper;
+import org.schabi.newpipe.util.TvRemoteAction;
+import org.schabi.newpipe.util.TvRemoteKeyDispatcher;
 import org.schabi.newpipe.util.external_communication.ShareUtils;
 import org.schabi.newpipe.views.FocusOverlayView;
 
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -155,6 +163,7 @@ public class MainActivity extends AppCompatActivity {
     private static final int ITEM_ID_SETTINGS = 0;
     private static final int ITEM_ID_CHANGELOG = 1;
     private static final int ITEM_ID_ABOUT = 2;
+    private static final int ITEM_ID_PROFILES = 3;
     private static final int ITEM_ID_KIOSK_BASE = 100;
     private static final int ITEM_ID_YOUTUBE_MUSIC = 10_000;
 
@@ -167,14 +176,34 @@ public class MainActivity extends AppCompatActivity {
 
     private SharedPreferences sharedPreferences;
     private SharedPreferences.Editor sharedPrefEditor;
+    private String activeProfileId;
     private NativePipController nativePipController;
     private ChangelogPromptController changelogPromptController;
+    private GitHubStarPromptController githubStarPromptController;
     private boolean searchNavigationActive;
     private int lastMainTabPosition;
     private int pendingMainTabPosition = -1;
+    private int defaultToolbarHeight;
+    private int defaultFragmentTopMargin;
+    private int defaultNavigationRailWidth;
     /*//////////////////////////////////////////////////////////////////////////
     // Activity's LifeCycle
     //////////////////////////////////////////////////////////////////////////*/
+
+    private final TvRemoteKeyDispatcher remoteKeys = new TvRemoteKeyDispatcher(this);
+
+    @Override
+    public boolean dispatchKeyEvent(final KeyEvent event) {
+        return remoteKeys.dispatch(event) || super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    public void onWindowFocusChanged(final boolean hasFocus) {
+        if (!hasFocus) {
+            remoteKeys.clear();
+        }
+        super.onWindowFocusChanged(hasFocus);
+    }
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -200,16 +229,23 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
+        LearningReminders.selectProfile(this, getIntent());
         super.onCreate(savedInstanceState);
         EdgeToEdgeHelper.enable(this);
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         sharedPrefEditor = sharedPreferences.edit();
+        activeProfileId = ProfileManager.getActiveProfileId(this);
 
         mainBinding = ActivityMainBinding.inflate(getLayoutInflater());
         drawerLayoutBinding = mainBinding.drawerLayout;
         drawerHeaderBinding = DrawerHeaderBinding.bind(drawerLayoutBinding.navigation
                 .getHeaderView(0));
         toolbarLayoutBinding = mainBinding.toolbarLayout;
+        defaultToolbarHeight = toolbarLayoutBinding.toolbar.getLayoutParams().height;
+        defaultFragmentTopMargin = ((ViewGroup.MarginLayoutParams)
+                mainBinding.fragmentHolder.getLayoutParams()).topMargin;
+        defaultNavigationRailWidth = mainBinding.mainNavigationRail.getLayoutParams().width;
+        applyLargeScreenChrome();
         setContentView(mainBinding.getRoot());
         EdgeToEdgeHelper.applyMainActivitySystemBarInsets(
                 mainBinding.getRoot(),
@@ -226,7 +262,8 @@ public class MainActivity extends AppCompatActivity {
                 (view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
                         nativePipController.updatePictureInPictureParams());
 
-        if (getSupportFragmentManager().getBackStackEntryCount() == 0) {
+        if (getSupportFragmentManager().getBackStackEntryCount() == 0
+                || getIntent().hasExtra(LearningReminders.EXTRA_PROFILE_ID)) {
             initFragments();
         }
 
@@ -251,15 +288,13 @@ public class MainActivity extends AppCompatActivity {
             UpdateSettingsFragment.askForConsentToUpdateChecks(this);
         }
 
-        // ReleaseVersionUtil.INSTANCE.isReleaseApk() will be true only for main official build
-        // We want every release build (nightly, nightly-refactor) to show the popup
         if (!DEBUG) {
-            showKeepAndroidDialog();
             showApi23RequirementDialog();
         }
 
         MigrationManager.showUserInfoIfPresent(this);
         changelogPromptController = new ChangelogPromptController(this);
+        githubStarPromptController = new GitHubStarPromptController(this);
     }
 
     @Override
@@ -283,8 +318,12 @@ public class MainActivity extends AppCompatActivity {
         activityStarted = true;
         sharedPrefEditor.putBoolean(KEY_IS_IN_BACKGROUND, false).apply();
         Log.d(TAG, "App moved to foreground");
+        DeviceSyncListenerService.Companion.startIfEnabled(this);
         nativePipController.onMainActivityStarted();
         openMiniPlayerUponPlayerStarted();
+        if (githubStarPromptController != null) {
+            githubStarPromptController.onAppStart();
+        }
     }
 
     @Override
@@ -300,6 +339,16 @@ public class MainActivity extends AppCompatActivity {
     public void onUserLeaveHint() {
         nativePipController.onUserLeaveHint();
         super.onUserLeaveHint();
+    }
+
+    @Override
+    public void onPictureInPictureUiStateChanged(
+            @NonNull final PictureInPictureUiState pipState) {
+        super.onPictureInPictureUiStateChanged(pipState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            nativePipController.onPictureInPictureUiStateChanged(
+                    pipState.isTransitioningToPip());
+        }
     }
 
     @Override
@@ -356,7 +405,7 @@ public class MainActivity extends AppCompatActivity {
         drawerKioskTargets.clear();
 
         final Set<HomeDestinationKey> homeDestinations = HomeDestinationResolver.fromTabs(this,
-                TabsManager.getManager(this).getTabs());
+                TabsManager.getManager(this).getVisibleTabs());
 
         addDrawerTabIfUnconfigured(homeDestinations, HomeDestinationKey.SUBSCRIPTIONS,
                 ITEM_ID_SUBSCRIPTIONS, R.string.tab_subscriptions, R.drawable.ic_tv);
@@ -371,9 +420,8 @@ public class MainActivity extends AppCompatActivity {
         addDrawerTabIfUnconfigured(homeDestinations, HomeDestinationKey.HISTORY,
                 ITEM_ID_HISTORY, R.string.action_history, R.drawable.ic_history);
         if (LearningMode.isEnabled(this)) {
-            menu.add(R.id.menu_tabs_group, ITEM_ID_LEARNING, ORDER,
-                            R.string.learning_dashboard_title)
-                    .setIcon(R.drawable.ic_school);
+            addDrawerTabIfUnconfigured(homeDestinations, HomeDestinationKey.LEARNING,
+                    ITEM_ID_LEARNING, R.string.learning_dashboard_title, R.drawable.ic_school);
         }
 
         try {
@@ -390,6 +438,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void addDrawerUtilityItems() {
         final Menu menu = drawerLayoutBinding.navigation.getMenu();
+        final ProfileRecord activeProfile = ProfileManager.getActiveProfile(this);
+        menu.add(
+                R.id.menu_options_about_group,
+                ITEM_ID_PROFILES,
+                ORDER,
+                getString(
+                        R.string.drawer_profiles_format,
+                        ProfileManager.getDisplayName(this, activeProfile))
+        ).setIcon(activeProfile.getIconRes());
         menu.add(R.id.menu_options_about_group, ITEM_ID_SETTINGS, ORDER, R.string.settings)
                 .setIcon(R.drawable.ic_settings);
         menu.add(R.id.menu_options_about_group, ITEM_ID_CHANGELOG, ORDER, R.string.changelog_title)
@@ -528,6 +585,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void optionsAboutSelected(final MenuItem item) {
         switch (item.getItemId()) {
+            case ITEM_ID_PROFILES:
+                showProfileSwitcher();
+                break;
             case ITEM_ID_SETTINGS:
                 nativePipController.prepareForInternalActivityNavigation();
                 NavigationHelper.openSettings(this);
@@ -541,6 +601,43 @@ public class MainActivity extends AppCompatActivity {
                 NavigationHelper.openAbout(this);
                 break;
         }
+    }
+
+    private void showProfileSwitcher() {
+        final List<ProfileRecord> profiles = ProfileManager.getProfiles(this);
+        final String currentProfileId = ProfileManager.getActiveProfileId(this);
+        final CharSequence[] names = new CharSequence[profiles.size()];
+        int selectedIndex = -1;
+        for (int i = 0; i < profiles.size(); i++) {
+            final ProfileRecord profile = profiles.get(i);
+            names[i] = ProfileManager.getDisplayName(this, profile);
+            if (profile.getId().equals(currentProfileId)) {
+                selectedIndex = i;
+            }
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.profiles_title)
+                .setSingleChoiceItems(names, selectedIndex, (dialog, which) -> {
+                    dialog.dismiss();
+                    final ProfileRecord profile = profiles.get(which);
+                    if (profile.getId().equals(ProfileManager.getActiveProfileId(this))
+                            || !ProfileManager.setActiveProfile(this, profile.getId())) {
+                        return;
+                    }
+                    Toast.makeText(this, getString(R.string.profile_switched,
+                            ProfileManager.getDisplayName(this, profile)), Toast.LENGTH_SHORT)
+                            .show();
+                    activeProfileId = profile.getId();
+                    mainBinding.getRoot().closeDrawer(GravityCompat.START, false);
+                    ActivityCompat.recreate(this);
+                })
+                .setNeutralButton(R.string.profile_manage_title, (dialog, which) -> {
+                    nativePipController.prepareForInternalActivityNavigation();
+                    NavigationHelper.openProfilesSettings(this);
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
     }
 
     private void setupDrawerHeader() {
@@ -669,6 +766,18 @@ public class MainActivity extends AppCompatActivity {
         // Change the date format to match the selected language on resume
         Localization.initPrettyTime(Localization.resolvePrettyTime());
         super.onResume();
+        applyLargeScreenChrome();
+        LearningReminders.initialize(this);
+
+        final String currentProfileId = ProfileManager.getActiveProfileId(this);
+        if (!Objects.equals(activeProfileId, currentProfileId)) {
+            activeProfileId = currentProfileId;
+            if (DEBUG) {
+                Log.d(TAG, "Active profile changed, recreating activity...");
+            }
+            ActivityCompat.recreate(this);
+            return;
+        }
 
         // Close drawer on return, and don't show animation,
         // so it looks like the drawer isn't open when the user returns to MainActivity
@@ -932,7 +1041,9 @@ public class MainActivity extends AppCompatActivity {
         }
         StateSaver.clearStateFiles();
         if (getIntent() != null && (getIntent().hasExtra(Constants.KEY_LINK_TYPE)
-                || getIntent().getBooleanExtra(KEY_OPEN_LOCAL_MEDIA_AUDIO, false))) {
+                || getIntent().getBooleanExtra(KEY_OPEN_LOCAL_MEDIA_AUDIO, false)
+                || getIntent().hasExtra(LearningReminders.EXTRA_PROFILE_ID)
+                || getIntent().hasExtra(TvRemoteKeyDispatcher.EXTRA_DESTINATION))) {
             // When user watch a video inside popup and then tries to open the video in main player
             // while the app is closed he will see a blank fragment on place of kiosk.
             // Let's open it first
@@ -997,7 +1108,7 @@ public class MainActivity extends AppCompatActivity {
 
     public void showMainNavigationForSearch() {
         searchNavigationActive = true;
-        final List<Tab> tabs = TabsManager.getManager(this).getTabs();
+        final List<Tab> tabs = TabsManager.getManager(this).getVisibleTabs();
         if (tabs.isEmpty()) {
             hideSearchNavigationViews();
             return;
@@ -1010,9 +1121,9 @@ public class MainActivity extends AppCompatActivity {
         final String defaultPosition = getString(R.string.tablet_navigation_position_default_value);
         final String configuredPosition = sharedPreferences.getString(
                 getString(positionKey), defaultPosition);
-        final boolean tablet = DeviceUtils.isTablet(this);
+        final boolean largeScreen = isLargeScreenNavigationDevice();
         final boolean useNavigationRail = TabletNavigationPositionResolver.useNavigationRail(
-                tablet, orientation, configuredPosition);
+                largeScreen, orientation, configuredPosition);
         final NavigationBarView navigation = useNavigationRail
                 ? mainBinding.mainNavigationRail : mainBinding.mainBottomNavigation;
         final NavigationBarView otherNavigation = useNavigationRail
@@ -1027,7 +1138,7 @@ public class MainActivity extends AppCompatActivity {
         final HomeNavigationMode navigationMode = HomeNavigationModeResolver
                 .resolveNavigationMode(tabs.size(), mainTabsAtBottom);
         final boolean showNavigation = shouldShowSearchNavigation(
-                tablet,
+                largeScreen,
                 tabs.size(),
                 itemLimit,
                 navigationMode == HomeNavigationMode.BOTTOM_NAVIGATION);
@@ -1121,6 +1232,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applySearchNavigationLabelVisibility(@NonNull final NavigationBarView navigation) {
+        if (navigation == mainBinding.mainNavigationRail
+                && isCompactLargeScreenNavigationEnabled()) {
+            navigation.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_UNLABELED);
+            return;
+        }
+
         final String defaultValue = getString(R.string.bottom_navigation_labels_default_value);
         final String configuredValue = sharedPreferences.getString(
                 getString(R.string.bottom_navigation_labels_key), defaultValue);
@@ -1159,8 +1276,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void applySearchNavigationContentInsets(final boolean navigationRail) {
-        final int startInset = navigationRail
-                ? getResources().getDimensionPixelSize(R.dimen.main_navigation_rail_width) : 0;
+        final int startInset = navigationRail ? getMainNavigationRailWidth() : 0;
         final int bottomInset = navigationRail
                 ? 0 : getResources().getDimensionPixelSize(R.dimen.main_bottom_navigation_height);
         setSearchNavigationStartMargin(mainBinding.fragmentHolder, startInset);
@@ -1208,15 +1324,74 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    static boolean shouldShowSearchNavigation(final boolean tablet,
+    static boolean shouldShowSearchNavigation(final boolean largeScreen,
                                               final int tabCount,
                                               final int itemLimit,
                                               final boolean phoneUsesBottomNavigation) {
-        return tablet ? tabCount <= itemLimit : phoneUsesBottomNavigation;
+        return largeScreen ? tabCount <= itemLimit : phoneUsesBottomNavigation;
     }
 
     static int normalizeSearchNavigationTabPosition(final int position, final int tabCount) {
         return position >= 0 && position < tabCount ? position : 0;
+    }
+
+    private boolean isLargeScreenNavigationDevice() {
+        return DeviceUtils.isTablet(this) || DeviceUtils.isTv(this);
+    }
+
+    public boolean isCompactLargeScreenNavigationEnabled() {
+        return isLargeScreenNavigationDevice()
+                && sharedPreferences.getBoolean(
+                        getString(R.string.compact_large_screen_navigation_key), false);
+    }
+
+    public int getMainNavigationRailWidth() {
+        final int configuredWidth = mainBinding.mainNavigationRail.getLayoutParams().width;
+        return configuredWidth > 0 ? configuredWidth : defaultNavigationRailWidth;
+    }
+
+    private void applyLargeScreenChrome() {
+        final boolean compact = isCompactLargeScreenNavigationEnabled();
+        final int toolbarHeight = compact
+                ? getResources().getDimensionPixelSize(R.dimen.main_compact_toolbar_height)
+                : defaultToolbarHeight;
+        final int navigationRailWidth = compact
+                ? getResources().getDimensionPixelSize(
+                        R.dimen.main_compact_navigation_rail_width)
+                : defaultNavigationRailWidth;
+
+        setViewHeight(toolbarLayoutBinding.toolbar, toolbarHeight);
+        toolbarLayoutBinding.toolbar.setMinimumHeight(toolbarHeight);
+        setViewHeight(toolbarLayoutBinding.toolbarSearchContainer.getRoot(), toolbarHeight);
+        setViewHeight(toolbarLayoutBinding.toolbarContextualSearchContainer.getRoot(),
+                toolbarHeight);
+
+        final ViewGroup.MarginLayoutParams fragmentParams =
+                (ViewGroup.MarginLayoutParams) mainBinding.fragmentHolder.getLayoutParams();
+        final int fragmentTopMargin = compact ? toolbarHeight : defaultFragmentTopMargin;
+        if (fragmentParams.topMargin != fragmentTopMargin) {
+            fragmentParams.topMargin = fragmentTopMargin;
+            mainBinding.fragmentHolder.setLayoutParams(fragmentParams);
+        }
+
+        final ViewGroup.LayoutParams navigationParams =
+                mainBinding.mainNavigationRail.getLayoutParams();
+        if (navigationParams.width != navigationRailWidth) {
+            navigationParams.width = navigationRailWidth;
+            mainBinding.mainNavigationRail.setLayoutParams(navigationParams);
+        }
+
+        if (searchNavigationActive) {
+            showMainNavigationForSearch();
+        }
+    }
+
+    private static void setViewHeight(@NonNull final View view, final int height) {
+        final ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params.height != height) {
+            params.height = height;
+            view.setLayoutParams(params);
+        }
     }
 
     private void handleIntent(final Intent intent) {
@@ -1225,7 +1400,25 @@ public class MainActivity extends AppCompatActivity {
                 Log.d(TAG, "handleIntent() called with: intent = [" + intent + "]");
             }
 
-            if (intent.hasExtra(Constants.KEY_LINK_TYPE)) {
+            if (intent.hasExtra(LearningReminders.EXTRA_PROFILE_ID)) {
+                if (!LearningReminders.selectProfile(this, intent)) {
+                    return;
+                }
+                if (!Objects.equals(activeProfileId, ProfileManager.getActiveProfileId(this))) {
+                    activeProfileId = ProfileManager.getActiveProfileId(this);
+                    recreate();
+                    return;
+                }
+                intent.removeExtra(LearningReminders.EXTRA_PROFILE_ID);
+                mainBinding.getRoot().closeDrawers();
+                PlayerHolder.getInstance().exitMainPlayerFullscreenForMiniPlayer();
+                if (!bottomSheetHiddenOrCollapsed()) {
+                    BottomSheetBehavior.from(mainBinding.fragmentPlayerHolder)
+                            .setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+                NavigationHelper.openMainFragment(getSupportFragmentManager());
+                NavigationHelper.openLearningDashboardFragment(getSupportFragmentManager());
+            } else if (intent.hasExtra(Constants.KEY_LINK_TYPE)) {
                 final String url = intent.getStringExtra(Constants.KEY_URL);
                 final int serviceId = intent.getIntExtra(Constants.KEY_SERVICE_ID, 0);
                 String title = intent.getStringExtra(Constants.KEY_TITLE);
@@ -1260,6 +1453,13 @@ public class MainActivity extends AppCompatActivity {
                                 serviceId, url, title);
                         break;
                 }
+            } else if (intent.hasExtra(TvRemoteKeyDispatcher.EXTRA_DESTINATION)) {
+                final TvRemoteAction destination = TvRemoteAction.fromId(
+                        intent.getStringExtra(TvRemoteKeyDispatcher.EXTRA_DESTINATION));
+                intent.removeExtra(TvRemoteKeyDispatcher.EXTRA_DESTINATION);
+                if (destination != null) {
+                    openRemoteDestination(destination);
+                }
             } else if (intent.hasExtra(Constants.KEY_OPEN_SEARCH)) {
                 String searchString = intent.getStringExtra(Constants.KEY_SEARCH_STRING);
                 if (searchString == null) {
@@ -1279,6 +1479,47 @@ public class MainActivity extends AppCompatActivity {
             }
         } catch (final Exception e) {
             ErrorUtil.showUiErrorSnackbar(this, "Handling intent", e);
+        }
+    }
+
+    /**
+     * Opens a remote shortcut using the same destinations as the navigation drawer.
+     * @param destination the app screen to open
+     */
+    public void openRemoteDestination(@NonNull final TvRemoteAction destination) {
+        final FragmentManager manager = getSupportFragmentManager();
+        if (manager.isStateSaved() || destination.getPlayback()
+                || destination == TvRemoteAction.SETTINGS) {
+            return;
+        }
+        mainBinding.getRoot().closeDrawers();
+        PlayerHolder.getInstance().exitMainPlayerFullscreenForMiniPlayer();
+        if (!bottomSheetHiddenOrCollapsed()) {
+            BottomSheetBehavior.from(mainBinding.fragmentPlayerHolder)
+                    .setState(BottomSheetBehavior.STATE_COLLAPSED);
+        }
+        switch (destination) {
+            case HOME:
+                NavigationHelper.gotoMainFragment(manager);
+                break;
+            case SEARCH:
+                NavigationHelper.openSearchFragment(manager,
+                        ServiceHelper.getSelectedServiceId(this), "");
+                break;
+            case FEED:
+                NavigationHelper.openFeedFragment(manager);
+                break;
+            case SUBSCRIPTIONS:
+                NavigationHelper.openSubscriptionFragment(manager);
+                break;
+            case BOOKMARKS:
+                NavigationHelper.openBookmarksFragment(manager);
+                break;
+            case HISTORY:
+                NavigationHelper.openStatisticFragment(manager);
+                break;
+            default:
+                break;
         }
     }
 
@@ -1417,53 +1658,6 @@ public class MainActivity extends AppCompatActivity {
         final int sheetState = bottomSheetBehavior.getState();
         return sheetState == BottomSheetBehavior.STATE_HIDDEN
                 || sheetState == BottomSheetBehavior.STATE_COLLAPSED;
-    }
-
-    private void showKeepAndroidDialog() {
-        final var prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        final var lastCheckKey = getString(R.string.kao_last_checked_key);
-        final var lastCheck = Instant.ofEpochMilli(prefs.getLong(lastCheckKey, 0));
-        final var now = Instant.now();
-
-        if (lastCheck.plus(30, ChronoUnit.DAYS).isBefore(now)) {
-            final String detailsUrl = getKeepAndroidOpenDetailsUrl();
-            final var solutionUrl = "https://github.com/woheller69/FreeDroidWarn#solutions";
-
-            final var dialog = new AlertDialog.Builder(this)
-                    .setTitle("Keep Android Open")
-                    .setCancelable(false)
-                    .setMessage(R.string.kao_dialog_warning)
-                    .setPositiveButton(android.R.string.ok, (d, w) -> prefs.edit()
-                            .putLong(lastCheckKey, now.toEpochMilli())
-                            .apply())
-                    .setNeutralButton(R.string.kao_solution, null)
-                    .setNegativeButton(R.string.kao_dialog_more_info, null)
-                    .show();
-
-            // If we use setNeutralButton/setNegativeButton, dialog will close after pressing the
-            // buttons, but we want it to close only when positive button is pressed
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
-                    .setOnClickListener(v -> ShareUtils.openUrlInBrowser(this, detailsUrl));
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-                    .setOnClickListener(v -> ShareUtils.openUrlInBrowser(this, solutionUrl));
-        }
-    }
-
-    @NonNull
-    private static String getKeepAndroidOpenDetailsUrl() {
-        final var supportedLanguages = List.of("fr", "de", "ca", "es", "id", "it", "pl",
-                "pt", "cs", "sk", "fa", "ar", "tr", "el", "th", "ru", "uk", "ko", "zh", "ja");
-        final String kaoBaseUrl = "https://keepandroidopen.org/";
-        final var locale = Localization.getAppLocale();
-        if (supportedLanguages.contains(locale.getLanguage())) {
-            if ("zh".equals(locale.getLanguage())) {
-                return kaoBaseUrl + ("TW".equals(locale.getCountry()) ? "zh-TW" : "zh-CN");
-            } else {
-                return kaoBaseUrl + locale.getLanguage();
-            }
-        } else {
-            return kaoBaseUrl;
-        }
     }
 
     private void showApi23RequirementDialog() {

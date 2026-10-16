@@ -24,42 +24,57 @@ public class FullscreenExitIntegrationTest {
     }
 
     @Test
-    public void orientationAwareActionUsesRotationCallbackWithDirectFallback()
+    public void manualFullscreenUsesExplicitRotationCallbackWithDirectFallback()
             throws Exception {
         final String source = read("org/schabi/newpipe/player/ui/MainPlayerUi.java");
         final String toggle = methodBody(
                 source, "public void toggleFullscreenWithOrientation()");
 
         assertTrue(toggle.contains(
-                "PlayerServiceEventListener::onScreenRotationButtonClicked"));
-        assertTrue(toggle.contains("toggleFullscreen();"));
+                "listener.onManualFullscreenButtonClicked(targetFullscreen)"));
+        assertTrue(toggle.contains("setFullscreen(targetFullscreen);"));
     }
 
     @Test
-    public void rotationButtonLetsConfigurationCallbackOwnFullscreenState()
+    public void rotationCallbacksShareConfigurationOwnedFullscreenTransition()
             throws Exception {
         final String source = read(
                 "org/schabi/newpipe/fragments/detail/VideoDetailFragment.java");
+        final String automatic = methodBody(
+                source, "public void onScreenRotationButtonClicked(final boolean fullscreen)");
+        final String manual = methodBody(
+                source, "public void onManualFullscreenButtonClicked(final boolean fullscreen)");
         final String rotation = methodBody(
-                source, "public void onScreenRotationButtonClicked()");
+                source, "private void requestFullscreenOrientation(");
 
-        assertTrue(rotation.contains("DeviceUtils.isLandscape(requireContext())"));
-        assertTrue(rotation.contains("SCREEN_ORIENTATION_SENSOR_LANDSCAPE"));
+        assertTrue(automatic.contains(
+                "requestFullscreenOrientation(fullscreen)"));
+        assertTrue(manual.contains(
+                "requestFullscreenOrientation(fullscreen)"));
+        assertTrue(rotation.contains("targetConfigurationOrientation("));
+        assertTrue(rotation.contains("pendingFullscreenState"));
         assertTrue(rotation.contains("SCREEN_ORIENTATION_PORTRAIT"));
         assertTrue(rotation.contains(
-                "activity.setRequestedOrientation(newOrientation)"));
-        assertFalse(rotation.contains("isTargetFullscreenOrientation"));
-        assertFalse(rotation.contains("ui.setFullscreen(fullscreen)"));
+                "activity.setRequestedOrientation(requestedOrientation)"));
+        assertFalse(rotation.contains("DeviceUtils.isLandscape(requireContext())"));
+
+        final String changed = methodBody(
+                source, "public void onFullscreenStateChanged(final boolean fullscreen)");
+        assertTrue(changed.contains(
+                "!fullscreen && FullscreenOrientationPolicy.shouldRecreateDetailLayout("));
+        assertTrue(changed.contains("recreateDetailLayoutForConfigurationChange();"));
     }
 
-
     @Test
-    public void landscapeAutoFullscreenDoesNotDependOnTransientPlaybackState()
+    public void landscapeAutoFullscreenRequiresConfirmedContentNotTransientPlaybackState()
             throws Exception {
         final String playerUi = read("org/schabi/newpipe/player/ui/MainPlayerUi.java");
         final String checkLandscape = methodBody(
                 playerUi, "public void checkLandscape()");
+        assertTrue(checkLandscape.contains("videoContentOrientation"));
         assertTrue(checkLandscape.contains("setFullscreen(true);"));
+        assertTrue(playerUi.contains(
+                "FullscreenOrientationPolicy.supportsAutomaticFullscreen(contentOrientation)"));
         assertFalse(checkLandscape.contains("STATE_COMPLETED"));
         assertFalse(checkLandscape.contains("STATE_PAUSED"));
     }

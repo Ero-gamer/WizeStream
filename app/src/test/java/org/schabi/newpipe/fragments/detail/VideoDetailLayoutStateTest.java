@@ -5,8 +5,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.content.res.Configuration;
+import android.graphics.Color;
 
 import org.junit.Test;
+import org.schabi.newpipe.player.ui.FullscreenOrientationPolicy;
 
 public class VideoDetailLayoutStateTest {
     @Test
@@ -17,6 +19,14 @@ public class VideoDetailLayoutStateTest {
     @Test
     public void fullscreenDetailContentStartsAtTheTopOfTheWindow() {
         assertEquals(0, VideoDetailFragment.getDetailContentTopMargin(true, 30));
+    }
+
+    @Test
+    public void fullscreenUsesBlackPlayerBackdropForLetterboxing() {
+        assertEquals(Color.BLACK,
+                VideoDetailFragment.getPlayerPlaceholderBackgroundColor(true));
+        assertEquals(Color.TRANSPARENT,
+                VideoDetailFragment.getPlayerPlaceholderBackgroundColor(false));
     }
 
     @Test
@@ -32,23 +42,23 @@ public class VideoDetailLayoutStateTest {
 
     @Test
     public void twoPaneDetailsRequireExpandedWidthAndLandscape() {
-        assertTrue(VideoDetailFragment.shouldUseWideLandscapeDetailLayout(
+        assertTrue(FullscreenOrientationPolicy.shouldUseWideLandscapeDetailLayout(
                 Configuration.ORIENTATION_LANDSCAPE, 840));
-        assertFalse(VideoDetailFragment.shouldUseWideLandscapeDetailLayout(
+        assertFalse(FullscreenOrientationPolicy.shouldUseWideLandscapeDetailLayout(
                 Configuration.ORIENTATION_PORTRAIT, 840));
-        assertFalse(VideoDetailFragment.shouldUseWideLandscapeDetailLayout(
+        assertFalse(FullscreenOrientationPolicy.shouldUseWideLandscapeDetailLayout(
                 Configuration.ORIENTATION_LANDSCAPE, 839));
     }
 
     @Test
     public void layoutRecreationTracksTheCurrentlyInflatedLayout() {
-        assertTrue(VideoDetailFragment.shouldRecreateDetailLayout(
+        assertTrue(FullscreenOrientationPolicy.shouldRecreateDetailLayout(
                 false, Configuration.ORIENTATION_LANDSCAPE, 840));
-        assertFalse(VideoDetailFragment.shouldRecreateDetailLayout(
+        assertFalse(FullscreenOrientationPolicy.shouldRecreateDetailLayout(
                 true, Configuration.ORIENTATION_LANDSCAPE, 840));
-        assertTrue(VideoDetailFragment.shouldRecreateDetailLayout(
+        assertTrue(FullscreenOrientationPolicy.shouldRecreateDetailLayout(
                 true, Configuration.ORIENTATION_PORTRAIT, 1200));
-        assertFalse(VideoDetailFragment.shouldRecreateDetailLayout(
+        assertFalse(FullscreenOrientationPolicy.shouldRecreateDetailLayout(
                 false, Configuration.ORIENTATION_PORTRAIT, 1200));
     }
 

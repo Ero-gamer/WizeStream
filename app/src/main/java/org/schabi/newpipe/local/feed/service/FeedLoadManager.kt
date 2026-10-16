@@ -18,13 +18,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.schabi.newpipe.R
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
+import org.schabi.newpipe.database.stream.StreamUploadDate
 import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.Info
+import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.channel.ChannelTabInfo
 import org.schabi.newpipe.extractor.feed.FeedExtractor
 import org.schabi.newpipe.extractor.feed.FeedInfo
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.ktx.getStringSafe
 import org.schabi.newpipe.local.feed.FeedDatabaseManager
@@ -43,6 +47,9 @@ class FeedLoadManager(private val context: Context) {
     private val notificationUpdater = PublishProcessor.create<String>()
     private val currentProgress = AtomicInteger(-1)
     private val maxProgress = AtomicInteger(-1)
+
+    @Volatile
+    private var currentUpdateDescription = ""
     private val cancelSignal = AtomicBoolean()
     private val cancelNotifier = BehaviorProcessor.createDefault(false)
     private val feedResultsHolder = FeedResultsHolder()
@@ -234,7 +241,8 @@ class FeedLoadManager(private val context: Context) {
         postEvent(
             FeedEventManager.Event.ProgressEvent(
                 currentProgress.get(),
-                maxProgress.get()
+                maxProgress.get(),
+                updateDescription = currentUpdateDescription
             )
         )
     }
@@ -299,26 +307,17 @@ class FeedLoadManager(private val context: Context) {
                     }
                     .flatMap { (channelTabInfo, linkHandler) ->
                         errors.addAll(channelTabInfo.errors)
-                        if (channelTabInfo.relatedItems.isEmpty() &&
-                            channelTabInfo.nextPage != null
-                        ) {
-                            val infoItemsPage = getMoreChannelTabItems(
-                                subscriptionEntity.serviceId,
-                                linkHandler,
-                                channelTabInfo.nextPage
-                            )
-                                .blockingGet()
-
-                            errors.addAll(infoItemsPage.errors)
-                            return@flatMap infoItemsPage.items
-                        } else {
-                            return@flatMap channelTabInfo.relatedItems
-                        }
+                        loadFeedChannelTabItems(
+                            subscriptionEntity.serviceId,
+                            linkHandler,
+                            channelTabInfo,
+                            errors
+                        )
                     }
                     .filterIsInstance<StreamInfoItem>()
             }
 
-            val repositionExistingShorts = FeedItemDateResolver.applyApproximateDates(
+            FeedItemDateResolver.applyApproximateDates(
                 streams!!,
                 OffsetDateTime.now(ZoneOffset.UTC)
             )
@@ -328,8 +327,7 @@ class FeedLoadManager(private val context: Context) {
                     subscriptionEntity,
                     originalInfo!!,
                     streams!!,
-                    errors,
-                    repositionExistingShorts
+                    errors
                 )
             )
         } catch (e: Throwable) {
@@ -342,6 +340,50 @@ class FeedLoadManager(private val context: Context) {
             )
             return Notification.createOnError(wrapper)
         }
+    }
+
+    private fun loadFeedChannelTabItems(
+        serviceId: Int,
+        linkHandler: ListLinkHandler,
+        channelTabInfo: ChannelTabInfo,
+        errors: MutableList<Throwable>
+    ): List<InfoItem> {
+        val collectedItems = channelTabInfo.relatedItems.toMutableList()
+        var pageItems = channelTabInfo.relatedItems
+        var nextPage = channelTabInfo.nextPage
+        var continuationPagesLoaded = 0
+
+        while (!cancelSignal.get()) {
+            val sourceUploadDates = pageItems
+                .filterIsInstance<StreamInfoItem>()
+                .mapNotNull { it.uploadDate?.offsetDateTime() }
+
+            if (!FeedExtractionPlanner.shouldLoadFeedContinuation(
+                    pageItemCount = pageItems.size,
+                    sourceUploadDates = sourceUploadDates,
+                    hasNextPage = nextPage != null,
+                    continuationPagesLoaded = continuationPagesLoaded,
+                    oldestAllowedDate = FeedDatabaseManager.FEED_OLDEST_ALLOWED_DATE
+                )
+            ) {
+                break
+            }
+
+            val page = nextPage ?: break
+            val infoItemsPage = getMoreChannelTabItems(
+                serviceId,
+                linkHandler,
+                page
+            ).blockingGet()
+
+            errors.addAll(infoItemsPage.errors)
+            collectedItems.addAll(infoItemsPage.items)
+            pageItems = infoItemsPage.items
+            nextPage = infoItemsPage.nextPage
+            continuationPagesLoaded++
+        }
+
+        return collectedItems
     }
 
     /**
@@ -371,7 +413,8 @@ class FeedLoadManager(private val context: Context) {
     private inner class NotificationConsumer : Consumer<Notification<FeedUpdateInfo>> {
         override fun accept(item: Notification<FeedUpdateInfo>) {
             currentProgress.incrementAndGet()
-            notificationUpdater.onNext(item.value?.name.orEmpty())
+            currentUpdateDescription = item.value?.name.orEmpty()
+            notificationUpdater.onNext(currentUpdateDescription)
 
             broadcastProgress()
         }
@@ -385,7 +428,7 @@ class FeedLoadManager(private val context: Context) {
                     when {
                         notification.isOnNext -> {
                             val info = notification.value!!
-                            val updateModeMask = feedScope?.youtubeModeMask
+                            val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
                                 ?: info.youtubeModeMask
 
                             notification.value!!.newStreams = filterNewStreams(info.streams)
@@ -394,8 +437,7 @@ class FeedLoadManager(private val context: Context) {
                                 info.uid,
                                 info.streams,
                                 updateModeMask,
-                                uploaderAvatarUrl = info.avatarUrl,
-                                repositionApproximateShorts = info.repositionExistingShorts
+                                uploaderAvatarUrl = info.avatarUrl
                             )
                             subscriptionManager.updateFromInfo(info)
 
@@ -418,9 +460,11 @@ class FeedLoadManager(private val context: Context) {
                             feedResultsHolder.addError(error!!)
 
                             if (error is FeedLoadService.RequestException) {
-                                val subscription = subscriptionManager.subscriptionTable()
-                                    .getSubscription(error.subscriptionId)
-                                val updateModeMask = feedScope?.youtubeModeMask
+                                val subscription =
+                                    subscriptionManager.getSubscriptionById(
+                                        error.subscriptionId
+                                    ) ?: continue
+                                val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
                                     ?: subscription.youtubeModeMask
                                 feedDatabaseManager.markAsOutdated(
                                     error.subscriptionId,
@@ -437,6 +481,7 @@ class FeedLoadManager(private val context: Context) {
             return list.filter {
                 !feedDatabaseManager.doesStreamExist(it) &&
                     it.uploadDate != null &&
+                    !StreamUploadDate.isSynthetic(it.serviceId, it.uploadDate?.isApproximation, it.textualUploadDate) &&
                     // Streams older than this date are automatically removed from the feed.
                     // Therefore, streams which are not in the database,
                     // but older than this date, are considered old.

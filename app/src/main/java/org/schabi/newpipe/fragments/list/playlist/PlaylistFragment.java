@@ -28,8 +28,11 @@ import com.google.android.material.shape.ShapeAppearanceModel;
 
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
+import org.schabi.newpipe.learning.LearningPlaylistContext;
 import org.schabi.newpipe.NewPipeDatabase;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.learning.LearningDifficulty;
+import org.schabi.newpipe.learning.LearningReviewDialog;
 import org.schabi.newpipe.database.playlist.model.PlaylistRemoteEntity;
 import org.schabi.newpipe.database.stream.model.StreamEntity;
 import org.schabi.newpipe.database.stream.model.StreamStateEntity;
@@ -54,9 +57,11 @@ import org.schabi.newpipe.info_list.dialog.InfoItemDialog;
 import org.schabi.newpipe.info_list.dialog.StreamDialogDefaultEntry;
 import org.schabi.newpipe.learning.LearningContentManager;
 import org.schabi.newpipe.learning.LearningMode;
+import org.schabi.newpipe.learning.LearningPlaylistNotesDialog;
 import org.schabi.newpipe.local.dialog.PlaylistDialog;
 import org.schabi.newpipe.local.history.HistoryRecordManager;
 import org.schabi.newpipe.local.playlist.RemotePlaylistManager;
+import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.local.search.ContextualSearchHelper;
 import org.schabi.newpipe.local.search.ContextualSearchable;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
@@ -154,8 +159,9 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         super.onCreate(savedInstanceState);
         disposables = new CompositeDisposable();
         isBookmarkButtonReady = new AtomicBoolean(false);
-        remotePlaylistManager = new RemotePlaylistManager(NewPipeDatabase
-                .getInstance(requireContext()));
+        remotePlaylistManager = new RemotePlaylistManager(
+                NewPipeDatabase.getInstance(requireContext()),
+                ProfileManager.getActiveProfileId(requireContext()));
         learningContentManager = LearningContentManager.getInstance(requireContext());
     }
 
@@ -202,6 +208,16 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         infoListAdapter.setUseMiniVariant(true);
 
         observeBookmark();
+    }
+
+    @Override
+    protected PlayQueue getPlayQueueForSelection(final StreamInfoItem item) {
+        return isLearningPlaylist() ? getPlayQueueStartingAt(item) : null;
+    }
+
+    private boolean isLearningPlaylist() {
+        return LearningMode.isEnabled(requireContext())
+                && learningContentManager.isRemotePlaylistMarked(serviceId, url);
     }
 
     private PlayQueue getPlayQueueStartingAt(final StreamInfoItem infoItem) {
@@ -256,6 +272,10 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
     @Override
     public void onPrepareOptionsMenu(@NonNull final Menu menu) {
         super.onPrepareOptionsMenu(menu);
+        menu.findItem(R.id.menu_item_learning_review).setVisible(
+                LearningDifficulty.isEnabled(requireContext())
+                        && learningContentManager.isRemotePlaylistMarked(serviceId, url));
+        menu.findItem(R.id.menu_item_learning_notes).setVisible(isLearningPlaylist());
         final MenuItem learningItem = menu.findItem(R.id.menu_item_learning_content);
         if (learningItem == null) {
             return;
@@ -337,7 +357,19 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
 
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
+        if (item.getItemId() == R.id.menu_item_learning_review) {
+            LearningReviewDialog.show(getParentFragmentManager(),
+                    LearningContentManager.remotePlaylistSourceId(serviceId, url),
+                    ProfileManager.getActiveProfileId(requireContext()), false);
+            return true;
+        }
         final int itemId = item.getItemId();
+        if (itemId == R.id.menu_item_learning_notes) {
+            LearningPlaylistNotesDialog.show(getParentFragmentManager(),
+                    LearningContentManager.remotePlaylistSourceId(serviceId, url),
+                    ProfileManager.getActiveProfileId(requireContext()));
+            return true;
+        }
         if (itemId == R.id.action_settings) {
             NavigationHelper.openSettings(requireContext());
         } else if (itemId == R.id.menu_item_openInBrowser) {
@@ -742,15 +774,25 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
                 infoItems.add((StreamInfoItem) i);
             }
         }
-        return new PlaylistPlayQueue(
+        final boolean learning = isLearningPlaylist();
+        final int selectedIndex = learning && index >= 0 && index < infoItems.size()
+                ? Math.max(0, unfilteredItems.indexOf(infoItems.get(index))) : index;
+        final PlayQueue queue = new PlaylistPlayQueue(
                 currentInfo.getServiceId(),
                 currentInfo.getUrl(),
-                selectedPlaylistSort == PlaylistSortOrder.PLAYLIST_ORDER
+                learning || selectedPlaylistSort == PlaylistSortOrder.PLAYLIST_ORDER
                         && !ContextualSearchHelper.isActive(contextualSearchQuery)
-                        ? currentInfo.getNextPage() : null,
-                infoItems,
-                index
+                        ? currentNextPage : null,
+                learning ? unfilteredItems : infoItems,
+                selectedIndex
         );
+        if (learning) {
+            queue.setLearningPlaylistContext(new LearningPlaylistContext(
+                    LearningContentManager.remotePlaylistSourceId(serviceId, url),
+                    currentInfo.getName(),
+                    ProfileManager.getActiveProfileId(requireContext())));
+        }
+        return queue;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -778,7 +820,8 @@ public class PlaylistFragment extends BaseListInfoFragment<StreamInfoItem, Playl
         }
 
         final long playlistUid = playlistEntity.getUid();
-        bookmarkMetadataUpdater = remotePlaylistManager.onUpdate(playlistUid, currentInfo)
+        bookmarkMetadataUpdater = remotePlaylistManager.onUpdate(
+                playlistUid, currentInfo, playlistEntity.getThumbnailUrl())
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(ignored -> { /* The database observer refreshes the entity. */ },
                         throwable -> showError(new ErrorInfo(throwable,

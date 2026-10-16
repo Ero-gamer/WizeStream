@@ -43,6 +43,13 @@ object Migrations {
     const val DB_VER_21 = 21
     const val DB_VER_22 = 22
     const val DB_VER_23 = 23
+    const val DB_VER_24 = 24
+    const val DB_VER_25 = 25
+    const val DB_VER_26 = 26
+    const val DB_VER_27 = 27
+    const val DB_VER_28 = 28
+    const val DB_VER_29 = 29
+    const val DB_VER_CURRENT = DB_VER_29
 
     private val TAG = Migrations::class.java.getName()
     private val isDebug = MainActivity.DEBUG
@@ -859,6 +866,195 @@ object Migrations {
             "CREATE UNIQUE INDEX IF NOT EXISTS " +
                 "`index_saved_search_feed_stream_feed_id_position` " +
                 "ON `saved_search_feed_stream` (`feed_id`, `position`)"
+        )
+    }
+
+    val MIGRATION_23_24 = Migration(DB_VER_23, DB_VER_24) { db ->
+        // Historical discovery times were never stored. Keep them older than newly found
+        // videos and retain publication-date ordering as the tie breaker.
+        db.execSQL("ALTER TABLE feed ADD COLUMN first_discovered_at INTEGER NOT NULL DEFAULT 0")
+    }
+
+    val MIGRATION_24_25 = Migration(DB_VER_24, DB_VER_25) { db ->
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+
+        db.execSQL(
+            "ALTER TABLE subscriptions ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL("DROP INDEX IF EXISTS index_subscriptions_service_id_url")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "index_subscriptions_profile_id_service_id_url " +
+                "ON subscriptions (profile_id, service_id, url)"
+        )
+
+        db.execSQL(
+            "ALTER TABLE feed_group ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL("DROP INDEX IF EXISTS index_feed_group_sort_order")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_feed_group_profile_id_sort_order " +
+                "ON feed_group (profile_id, sort_order)"
+        )
+    }
+
+    val MIGRATION_25_26 = Migration(DB_VER_25, DB_VER_26) { db ->
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS stream_history_new (" +
+                "stream_id INTEGER NOT NULL, access_date INTEGER NOT NULL, " +
+                "repeat_count INTEGER NOT NULL, profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId', " +
+                "PRIMARY KEY(profile_id, stream_id, access_date), " +
+                "FOREIGN KEY(stream_id) REFERENCES streams(uid) " +
+                "ON UPDATE CASCADE ON DELETE CASCADE)"
+        )
+        db.execSQL(
+            "INSERT INTO stream_history_new " +
+                "(stream_id, access_date, repeat_count, profile_id) " +
+                "SELECT stream_id, access_date, repeat_count, '$defaultProfileId' " +
+                "FROM stream_history"
+        )
+        db.execSQL("DROP TABLE stream_history")
+        db.execSQL("ALTER TABLE stream_history_new RENAME TO stream_history")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_stream_history_stream_id " +
+                "ON stream_history (stream_id)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_stream_history_profile_id_stream_id " +
+                "ON stream_history (profile_id, stream_id)"
+        )
+
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS stream_state_new (" +
+                "stream_id INTEGER NOT NULL, progress_time INTEGER NOT NULL, " +
+                "profile_id TEXT NOT NULL DEFAULT '$defaultProfileId', " +
+                "PRIMARY KEY(profile_id, stream_id), " +
+                "FOREIGN KEY(stream_id) REFERENCES streams(uid) " +
+                "ON UPDATE CASCADE ON DELETE CASCADE)"
+        )
+        db.execSQL(
+            "INSERT INTO stream_state_new (stream_id, progress_time, profile_id) " +
+                "SELECT stream_id, progress_time, '$defaultProfileId' FROM stream_state"
+        )
+        db.execSQL("DROP TABLE stream_state")
+        db.execSQL("ALTER TABLE stream_state_new RENAME TO stream_state")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_stream_state_stream_id " +
+                "ON stream_state (stream_id)"
+        )
+
+        db.execSQL(
+            "ALTER TABLE learning_sessions ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_learning_sessions_profile_id_local_date " +
+                "ON learning_sessions (profile_id, local_date)"
+        )
+    }
+
+    val MIGRATION_26_27 = Migration(DB_VER_26, DB_VER_27) { db ->
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+
+        db.execSQL(
+            "ALTER TABLE playlists ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_playlists_profile_id_display_index " +
+                "ON playlists (profile_id, display_index)"
+        )
+
+        db.execSQL(
+            "ALTER TABLE remote_playlists ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL("DROP INDEX IF EXISTS index_remote_playlists_service_id_url")
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "index_remote_playlists_profile_id_service_id_url " +
+                "ON remote_playlists (profile_id, service_id, url)"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_remote_playlists_profile_id_display_index " +
+                "ON remote_playlists (profile_id, display_index)"
+        )
+
+        db.execSQL(
+            "ALTER TABLE saved_search_feed ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL("DROP INDEX IF EXISTS index_saved_search_feed_sort_order")
+        db.execSQL(
+            "DROP INDEX IF EXISTS " +
+                "index_saved_search_feed_service_id_query_content_filter_sort_filter"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_saved_search_feed_profile_id_sort_order " +
+                "ON saved_search_feed (profile_id, sort_order)"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "index_saved_search_feed_profile_id_service_id_query_content_filter_sort_filter " +
+                "ON saved_search_feed " +
+                "(profile_id, service_id, query, content_filter, sort_filter)"
+        )
+    }
+
+    val MIGRATION_27_28 = Migration(DB_VER_27, DB_VER_28) { db ->
+        val defaultProfileId = "00000000-0000-0000-0000-000000000000"
+
+        db.execSQL(
+            "ALTER TABLE subscription_sync_changes ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "ALTER TABLE subscription_sync_records ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "DROP INDEX IF EXISTS index_subscription_sync_records_service_id_url"
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "index_subscription_sync_records_profile_id_service_id_url " +
+                "ON subscription_sync_records (profile_id, service_id, url)"
+        )
+
+        db.execSQL(
+            "ALTER TABLE playlist_sync_changes ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "ALTER TABLE playlist_sync_records ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+
+        db.execSQL(
+            "ALTER TABLE history_sync_changes ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+        db.execSQL(
+            "ALTER TABLE history_sync_records ADD COLUMN profile_id TEXT NOT NULL " +
+                "DEFAULT '$defaultProfileId'"
+        )
+    }
+
+    val MIGRATION_28_29 = Migration(DB_VER_28, DB_VER_29) { db ->
+        db.execSQL(
+            "ALTER TABLE streams ADD COLUMN is_short_form_content " +
+                "INTEGER NOT NULL DEFAULT 0"
+        )
+        // Preserve the classification of legacy YouTube Shorts that were already cached.
+        // Other services keep the safe default and will populate the flag on the next refresh.
+        db.execSQL(
+            "UPDATE streams SET is_short_form_content = 1 " +
+                "WHERE service_id = 0 AND url LIKE '%/shorts/%'"
         )
     }
 }
