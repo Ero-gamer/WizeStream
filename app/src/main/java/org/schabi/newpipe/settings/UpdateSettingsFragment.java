@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
@@ -18,6 +19,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.widget.TextViewCompat;
+import androidx.lifecycle.LiveData;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceManager;
 import androidx.work.WorkInfo;
@@ -30,6 +32,7 @@ import org.schabi.newpipe.R;
 import org.schabi.newpipe.update.WizeStreamUpdateRepository;
 import org.schabi.newpipe.update.WizeStreamUpdateRepository.VersionComparison;
 import org.schabi.newpipe.update.UpdateDownloadWorker;
+import org.schabi.newpipe.update.UpdateDownloadNotifications;
 import org.schabi.newpipe.update.UpdateInstallHelper;
 import org.schabi.newpipe.util.DeviceUtils;
 
@@ -50,6 +53,8 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
     private static final String STATE_PENDING_APK_PATH = "pendingApkPath";
     private static final String STATE_PENDING_APK_SHA256 = "pendingApkSha256";
     private static final String STATE_PENDING_APK_VERSION = "pendingApkVersion";
+    private static final String STATE_DOWNLOAD_WORK_ID = "downloadWorkId";
+    private static final String STATE_DOWNLOAD_RELEASE_URL = "downloadReleaseUrl";
 
     private final CompositeDisposable disposables = new CompositeDisposable();
     private final ActivityResultLauncher<Intent> installPermissionLauncher =
@@ -63,6 +68,14 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
     private String pendingApkSha256;
     @Nullable
     private String pendingApkVersion;
+    @Nullable
+    private UUID downloadWorkId;
+    @Nullable
+    private String downloadReleaseUrl;
+    @Nullable
+    private AlertDialog downloadProgressDialog;
+    @Nullable
+    private LiveData<WorkInfo> downloadWorkInfo;
 
     private final Preference.OnPreferenceChangeListener updatePreferenceChange = (p, nVal) -> {
         final boolean checkForUpdates = (boolean) nVal;
@@ -112,6 +125,27 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
             pendingApkPath = savedInstanceState.getString(STATE_PENDING_APK_PATH);
             pendingApkSha256 = savedInstanceState.getString(STATE_PENDING_APK_SHA256);
             pendingApkVersion = savedInstanceState.getString(STATE_PENDING_APK_VERSION);
+            downloadReleaseUrl = savedInstanceState.getString(STATE_DOWNLOAD_RELEASE_URL);
+        }
+        final Intent intent = requireActivity().getIntent();
+        final String workId = savedInstanceState == null
+                ? intent.getStringExtra(UpdateDownloadNotifications.EXTRA_WORK_ID)
+                : savedInstanceState.getString(STATE_DOWNLOAD_WORK_ID);
+        intent.removeExtra(UpdateDownloadNotifications.EXTRA_WORK_ID);
+        if (workId != null) {
+            try {
+                downloadWorkId = UUID.fromString(workId);
+            } catch (final IllegalArgumentException ignored) {
+                downloadWorkId = null;
+            }
+        }
+    }
+
+    @Override
+    public void onViewCreated(@NonNull final View view, @Nullable final Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        if (downloadWorkId != null) {
+            observeDownloadWork(downloadWorkId);
         }
     }
 
@@ -141,6 +175,19 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
         outState.putString(STATE_PENDING_APK_PATH, pendingApkPath);
         outState.putString(STATE_PENDING_APK_SHA256, pendingApkSha256);
         outState.putString(STATE_PENDING_APK_VERSION, pendingApkVersion);
+        outState.putString(STATE_DOWNLOAD_WORK_ID,
+                downloadWorkId == null ? null : downloadWorkId.toString());
+        outState.putString(STATE_DOWNLOAD_RELEASE_URL, downloadReleaseUrl);
+    }
+
+    @Override
+    public void onDestroyView() {
+        dismissDownloadProgress();
+        if (downloadWorkInfo != null) {
+            downloadWorkInfo.removeObservers(getViewLifecycleOwner());
+            downloadWorkInfo = null;
+        }
+        super.onDestroyView();
     }
 
     @Override
@@ -349,8 +396,14 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
     private void startApkDownload(final String apkUrl, final String apkName,
                                   final String version, final String releaseUrl,
                                   final long apkSize, final String apkSha256) {
-        final UUID workId = UpdateDownloadWorker.enqueue(requireContext(), apkUrl, apkName,
+        cancelDownload();
+        downloadWorkId = UpdateDownloadWorker.enqueue(requireContext(), apkUrl, apkName,
                 version, apkSize, apkSha256);
+        downloadReleaseUrl = releaseUrl;
+        observeDownloadWork(downloadWorkId);
+    }
+
+    private void observeDownloadWork(@NonNull final UUID workId) {
         final ProgressBar progressBar = new ProgressBar(requireContext(), null,
                 android.R.attr.progressBarStyleHorizontal);
         progressBar.setIndeterminate(true);
@@ -369,43 +422,72 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
                 .setTitle(R.string.app_update_download_progress_title)
                 .setMessage(getString(R.string.app_update_download_progress_unknown))
                 .setView(progressContainer)
-                .setNegativeButton(R.string.cancel, (dialog, which) ->
-                        WorkManager.getInstance(requireContext()).cancelWorkById(workId))
+                .setNegativeButton(R.string.cancel, (dialog, which) -> cancelDownload())
+                .setOnCancelListener(dialog -> cancelDownload())
                 .show();
+        downloadProgressDialog = progressDialog;
 
-        WorkManager.getInstance(requireContext()).getWorkInfoByIdLiveData(workId)
-                .observe(this, workInfo -> {
-                    if (workInfo == null) {
-                        return;
-                    }
-                    final int percent = workInfo.getProgress().getInt(
-                            UpdateDownloadWorker.PROGRESS_PERCENT, -1);
-                    if (percent >= 0) {
-                        progressBar.setIndeterminate(false);
-                        progressBar.setProgress(percent);
-                        final long downloadedBytes = workInfo.getProgress().getLong(
-                                UpdateDownloadWorker.PROGRESS_BYTES_DOWNLOADED, -1L);
-                        final long totalBytes = workInfo.getProgress().getLong(
-                                UpdateDownloadWorker.PROGRESS_TOTAL_BYTES, -1L);
-                        String message = getString(
-                                R.string.app_update_download_progress_message, percent);
-                        if (downloadedBytes >= 0 && totalBytes > 0) {
-                            message += "\n" + getString(
-                                    R.string.app_update_downloaded_size_format,
-                                    formatApkSize(downloadedBytes), formatApkSize(totalBytes));
-                        }
-                        progressDialog.setMessage(message);
-                    }
-                    if (!workInfo.getState().isFinished()) {
-                        return;
-                    }
-                    progressDialog.dismiss();
-                    if (workInfo.getState() == WorkInfo.State.SUCCEEDED) {
-                        showInstallPrompt(workInfo);
-                    } else if (workInfo.getState() == WorkInfo.State.FAILED) {
-                        showDownloadFailedDialog(releaseUrl);
-                    }
-                });
+        downloadWorkInfo = WorkManager.getInstance(requireContext())
+                .getWorkInfoByIdLiveData(workId);
+        downloadWorkInfo.observe(getViewLifecycleOwner(), workInfo -> {
+            if (!workId.equals(downloadWorkId)) {
+                return;
+            }
+            if (workInfo == null) {
+                return;
+            }
+            final int percent = workInfo.getProgress().getInt(
+                    UpdateDownloadWorker.PROGRESS_PERCENT, -1);
+            if (percent >= 0) {
+                progressBar.setIndeterminate(false);
+                progressBar.setProgress(percent);
+                final long downloadedBytes = workInfo.getProgress().getLong(
+                        UpdateDownloadWorker.PROGRESS_BYTES_DOWNLOADED, -1L);
+                final long totalBytes = workInfo.getProgress().getLong(
+                        UpdateDownloadWorker.PROGRESS_TOTAL_BYTES, -1L);
+                String message = getString(
+                        R.string.app_update_download_progress_message, percent);
+                if (downloadedBytes >= 0 && totalBytes > 0) {
+                    message += "\n" + getString(
+                            R.string.app_update_downloaded_size_format,
+                            formatApkSize(downloadedBytes), formatApkSize(totalBytes));
+                }
+                progressDialog.setMessage(message);
+            }
+            if (!workInfo.getState().isFinished()) {
+                return;
+            }
+            final String releaseUrl = downloadReleaseUrl;
+            dismissDownloadProgress();
+            downloadWorkId = null;
+            downloadReleaseUrl = null;
+            if (workInfo.getState() == WorkInfo.State.SUCCEEDED) {
+                showInstallPrompt(workInfo);
+            } else if (workInfo.getState() == WorkInfo.State.FAILED) {
+                showDownloadFailedDialog(releaseUrl);
+            }
+        });
+    }
+
+    private void cancelDownload() {
+        if (downloadWorkId != null) {
+            WorkManager.getInstance(requireContext()).cancelWorkById(downloadWorkId);
+            UpdateDownloadNotifications.dismissCompleted(requireContext(), downloadWorkId);
+            downloadWorkId = null;
+        }
+        downloadReleaseUrl = null;
+        if (downloadWorkInfo != null) {
+            downloadWorkInfo.removeObservers(getViewLifecycleOwner());
+            downloadWorkInfo = null;
+        }
+        dismissDownloadProgress();
+    }
+
+    private void dismissDownloadProgress() {
+        if (downloadProgressDialog != null) {
+            downloadProgressDialog.dismiss();
+            downloadProgressDialog = null;
+        }
     }
 
     private void showInstallPrompt(@NonNull final WorkInfo workInfo) {
@@ -425,8 +507,11 @@ public class UpdateSettingsFragment extends BasePreferenceFragment {
         new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.app_update_download_complete_title)
                 .setMessage(message)
-                .setPositiveButton(R.string.app_update_install_now, (dialog, which) ->
-                        beginInstallation(apkPath, apkSha256, version))
+                .setPositiveButton(R.string.app_update_install_now, (dialog, which) -> {
+                    UpdateDownloadNotifications.dismissCompleted(
+                            requireContext(), workInfo.getId());
+                    beginInstallation(apkPath, apkSha256, version);
+                })
                 .setNegativeButton(R.string.app_update_later, null)
                 .show();
     }
