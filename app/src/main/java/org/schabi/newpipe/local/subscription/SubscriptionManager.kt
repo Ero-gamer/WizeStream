@@ -162,19 +162,17 @@ class SubscriptionManager @JvmOverloads constructor(
     }
 
     fun updateChannelInfo(info: ChannelInfo): Completable {
-        return subscriptionTable
-            .getSubscriptionForProfile(profileId, info.serviceId, info.url)
-            .flatMapCompletable {
-                Completable.fromRunnable {
-                    it.apply {
-                        name = info.name
-                        avatarUrl = ImageStrategy.imageListToDbUrl(info.avatars)
-                        description = info.description
-                        subscriberCount = info.subscriberCount
-                    }
-                    subscriptionTable.update(it)
-                }
-            }
+        // Let Room schedule the write instead of running a blocking update in a query callback.
+        // Updating only metadata also preserves concurrent notification and mode changes.
+        return subscriptionTable.updateChannelInfoForProfile(
+            profileId,
+            info.serviceId,
+            info.url,
+            info.name,
+            ImageStrategy.imageListToDbUrl(info.avatars),
+            info.description,
+            info.subscriberCount
+        )
     }
 
     fun updateNotificationMode(serviceId: Int, url: String, @NotificationMode mode: Int): Completable {
