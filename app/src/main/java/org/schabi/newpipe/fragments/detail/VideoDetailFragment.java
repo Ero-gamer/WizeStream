@@ -2961,12 +2961,16 @@ public final class VideoDetailFragment
     public void onProgressUpdate(final int currentProgress,
                                  final int duration,
                                  final int bufferPercent) {
-        // Progress updates every second even if media is paused. It's useless until playing
-        if (!player.isPlaying() || playQueue == null) {
+        // A queued callback can outlive the service connection or the fragment view.
+        final Player currentPlayer = player;
+        if (currentPlayer == null || binding == null || playerDismissed || playQueue == null
+                || !currentPlayer.isPlaying()) {
             return;
         }
 
-        if (player.getPlayQueue().getItem().getUrl().equals(url)) {
+        final PlayQueue currentQueue = currentPlayer.getPlayQueue();
+        final PlayQueueItem currentItem = currentQueue == null ? null : currentQueue.getItem();
+        if (currentItem != null && url != null && url.equals(currentItem.getUrl())) {
             updatePlaybackProgress(currentProgress, duration);
         }
     }

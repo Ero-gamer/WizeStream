@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="automatic_backup_title">Babeskopia automatikoak</string>
+    <string name="automatic_backup_folder">Babeskopien karpeta</string>
+    <string name="automatic_backup_choose_folder">Aukeratu karpeta bat babeskopia automatikoak gaitu aurretik</string>
+    <string name="automatic_backup_frequency">Babeskopien maiztasuna</string>
+    <string name="automatic_backup_retention">Gorde azken 7 babeskopia automatikoak</string>
+    <string name="automatic_backup_waiting">Oraindik ez dago babeskopia automatikorik. Androidek babeskopiak programatzen ditu bateriak eta biltegiak ahalbidetzen dutenean.</string>
+    <string name="automatic_backup_failed">Azken babeskopiak huts egin du. Egiaztatu karpetaren baimena eta leku erabilgarria.</string>
+    <string name="automatic_backup_last_success">Azken babeskopia arrakastatsua: %1$s</string>
+    <string-array name="automatic_backup_intervals">
+        <item>Desaktibatuta</item>
+        <item>Egunero</item>
+        <item>Astero</item>
+    </string-array>
+    <string name="player_touch_lock">Blokeatu ukipen-kontrolak</string>
+    <string name="player_touch_unlock">Desblokeatu</string>
+    <string name="audio_loudness_normalization">Ozentasunaren normalizazioa</string>
+    <string name="audio_loudness_normalization_summary">Berdindu pixkanaka audio ahula eta ozena erreprodukzioan</string>
+    <string name="audio_dynamic_compression">Barruti dinamikoaren konpresioa</string>
+    <string name="audio_dynamic_compression_summary">Murriztu gailur ozenak entzuera erosoagoa izateko</string>
+    <string name="comments_sort_top">Nabarmenenak</string>
+    <string name="comments_sort_newest">Berrienak</string>
+    <string name="stream_select">Hautatu</string>
+    <string name="stream_select_all_loaded">Hautatu kargatutako bideo guztiak</string>
+    <string name="stream_selection_count">%1$d hautatuta</string>
+    <string name="playlist_categories">Kategoriak</string>
+    <string name="playlist_categories_all">Erreprodukzio-zerrenda guztiak</string>
+    <string name="playlist_uncategorized">Kategoriarik gabe</string>
+    <string name="playlist_move_to_category">Eraman kategoriara</string>
+    <string name="playlist_category_create">Kategoria berria</string>
+    <string name="playlist_category_name_error">Aukeratu 1 eta 80 karaktere arteko izen bakarra</string>
+    <string name="playlist_category_delete_message">Ezabatu kategoria hau? Bere erreprodukzio-zerrendak «Kategoriarik gabe» atalera eramango dira.</string>
+</resources>

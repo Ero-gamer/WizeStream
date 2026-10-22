@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="eye_comfort_theme_title">Begien erosotasuna (ilun epela)</string>
+    <string name="eye_comfort_theme_summary">Zerbitzu guztietarako interfaze-paleta epel finkoa. Bideoen koloreak ez dira aldatzen.</string>
+</resources>

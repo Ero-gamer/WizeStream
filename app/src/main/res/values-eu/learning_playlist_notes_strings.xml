@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="learning_playlist_notes">Ikusi erreprodukzio-zerrendaren oharrak</string>
+    <string name="learning_notes_export_text">Esportatu testu gisa</string>
+    <string name="learning_notes_export_csv">Esportatu CSV gisa</string>
+    <string name="learning_notes_delete_all">Ezabatu erreprodukzio-zerrendaren ohar guztiak</string>
+    <string name="learning_notes_delete_all_confirm">Ezabatu ohar hauek? Beste erreprodukzio-zerrenda batzuekin partekatutako bideoen oharrak ere kenduko dira.</string>
+    <string name="learning_notes_exported">Oharrak esportatuta</string>
+    <string name="learning_notes_export_error">Ezin izan dira oharrak esportatu</string>
+    <string name="learning_notes_actions">Oharren ekintzak</string>
+</resources>

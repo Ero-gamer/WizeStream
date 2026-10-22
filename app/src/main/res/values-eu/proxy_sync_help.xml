@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="proxy_region_help_title">Eskualdez mugatutako bideoak</string>
+    <string name="proxy_region_help_summary">Erabili bideoa erabilgarri dagoen eskualde bateko HTTP edo SOCKS5 proxy bat. Zerbitzu batzuek proxy-helbideak baztertu ditzakete hala ere. Gailuen sinkronizazioak zure tokiko sarea erabiltzen du eta ez du aplikazioaren proxya erabiltzen.</string>
+    <string name="sync_vpn_help_title">VPNa eta tokiko sinkronizazioa</string>
+    <string name="sync_vpn_help_summary">Mantendu bi gailuak Wi-Fi edo Ethernet sare berean. Gailu osoko VPN batek sinkronizazioa blokeatzen badu, baimendu tokiko sarerako (LAN) sarbidea haren ezarpenetan, edo erabili WizeStream-en aplikazio-proxya VPNrik gabe. Androideko «Blokeatu VPNrik gabeko konexioak» ezarpenak tokiko konexioak eragotz ditzake oraindik.</string>
+</resources>

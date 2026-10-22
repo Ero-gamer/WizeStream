@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="settings_search_title">Bilatu ezarpenak</string>
+    <string name="settings_search_summary">Aurkitu aukera bat bere izenaren, deskribapenaren edo aukera erabilgarrien bidez</string>
+    <string name="settings_search_hint">Idatzi ezarpen bat aurkitzeko</string>
+    <string name="settings_search_no_results">Ez dago bat datorren ezarpenik. Saiatu beste hitz batekin.</string>
+    <string name="settings_search_notification_actions">Jakinarazpenen ekintzak</string>
+</resources>

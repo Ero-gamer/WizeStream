@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="automatic_downloads">Kanalen deskarga automatikoak</string>
+    <string name="automatic_download_channel_title">Deskargatu igoera berriak: %1$s</string>
+    <string name="automatic_download_channels">Kudeatu deskarga automatikoak</string>
+    <string name="automatic_download_instructions">Harpidetu kanal batera eta aukeratu bere menuan «Kanalen deskarga automatikoak». Igoera berriak orduro egiaztatzen dira, gehienez 3 kanaleko eta 20 guztira egiaztapen bakoitzean. Deskarga-kalitate lehenetsia eta gordetako karpetak erabiltzen ditu. Lehendik dauden igoerak saltatzen dira; huts egindako deskargak Deskargak ataletik saia daitezke berriro.</string>
+    <string name="automatic_download_wifi_only">Erabili neurtu gabeko sareak soilik</string>
+    <string name="automatic_download_off">Desaktibatuta</string>
+    <string name="automatic_download_success_status">Azken egiaztapena: %1$d deskarga ilaran jarrita.</string>
+    <string name="automatic_download_partial_status">Azken egiaztapena: %1$d deskarga ilaran jarrita. Elementu batzuk ezin izan dira ilaran jarri eta berriro egiaztatuko dira.</string>
+    <string name="automatic_download_waiting_status">Hurrengo egiaztapen programatuaren zain.</string>
+    <string name="automatic_download_status_title">Deskarga automatikoen azken egiaztapena</string>
+</resources>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wizestream_manual_update_description">Bilatu WizeStream-en bertsio berri bat GitHub Releases-en</string>
+    <string name="wizestream_auto_update_check_description">WizeStream-ek noizean behin GitHub Releases-en bertsio berriak automatikoki bila ditzake eta bat erabilgarri dagoenean jakinarazi.\nHau gaitu nahi duzu?</string>
+    <string name="wizestream_update_unavailable_toast">WizeStream eguneratuta dago</string>
+    <string name="wizestream_update_available_notification_title">WizeStream eguneratzea erabilgarri dago!</string>
+    <string name="wizestream_update_available_notification_text">WizeStream %1$s erabilgarri dago. Instalatutako bertsioa: %2$s.</string>
+    <string name="wizestream_update_available_dialog_message">WizeStream %1$s erabilgarri dago. Instalatutako bertsioa: %2$s.</string>
+    <string name="wizestream_update_download_complete_message">WizeStream %1$s instalatzeko prest dago.</string>
+    <string name="wizestream_update_install_permission_message">Androidek baimena behar du WizeStream-ek pakete-instalatzailea ireki aurretik. Baimena gaitu ondoren, itzuli hona eta sakatu berriro Instalatu orain.</string>
+    <string name="wizestream_update_notification_channel_name">WizeStream eguneratzeak</string>
+    <string name="wizestream_update_notification_channel_description">WizeStream-en bertsio berrien jakinarazpenak</string>
+</resources>

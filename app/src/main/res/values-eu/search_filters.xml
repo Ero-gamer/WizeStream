@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_filter_presets">Gordetako iragazkiak</string>
+    <string name="search_preset_add">+ Gorde uneko iragazkiak</string>
+    <string name="search_preset_name">Aurrezarpenaren izena</string>
+    <string name="search_preset_load">Erabili iragazki hauek</string>
+    <string name="search_preset_update">Ordeztu uneko iragazkiekin</string>
+    <string name="search_custom_dates">Igotze-data pertsonalizatuak</string>
+    <string name="search_after_date">Ondoren: data edo denbora erlatiboa</string>
+    <string name="search_before_date">Aurretik: data edo denbora erlatiboa</string>
+    <string name="search_date_help">Idatzi UUUU-HH-EE edo denbora erlatibo bat, adibidez 1 day, 2 weeks edo 6 months. Data erlatiboak bilatzean eguneratzen dira. YouTubek after: eta before: kontsulta-terminoak jasotzen ditu.</string>
+    <string name="search_date_invalid">Idatzi baliozko datak edo denbora erlatiboak, «Ondoren» «Aurretik» baino lehenagokoa izanik.</string>
+    <string name="search_duration_order">Iraupena eta emaitzen ordena</string>
+    <string name="search_duration_help">Ordenatu ordura arte bildutako emaitzak iraupenaren arabera. Iraupen ezezagunak eta zuzeneko igorpenak azkenean agertzen dira eta iraupen-tarteek baztertzen dituzte. Eskuratu orri gehiago bat-etortze gehiago aurkitzeko.</string>
+    <string name="search_service_order">Zerbitzuaren ordena</string>
+    <string name="search_longest_first">Luzeenak lehenik</string>
+    <string name="search_shortest_first">Laburrenak lehenik</string>
+    <string name="search_minimum_hours">Gutxieneko orduak (aukerakoa)</string>
+    <string name="search_maximum_hours">Gehieneko orduak (aukerakoa)</string>
+    <string name="search_duration_invalid">Idatzi baliozko orduak, gutxienekoa gehienekoa baino handiagoa izan gabe.</string>
+    <string name="search_fetch_more">Eskuratu emaitza gehiago</string>
+    <string name="search_deep_help">Bildu bilaketa-orri gehiago eta jarraitu emaitzak eguneratzen. Edozein unetan utzi dezakezu, bildutako emaitzak galdu gabe. Baliteke zerbitzuak bat datozen bideo guztiak ez itzultzea. Bilketa hautatutako orri- eta emaitza-mugetan gelditzen da, edo orri berririk geratzen ez denean. Emaitza-muga lehenetsia 5.000 da; 20.000 arte aukera dezakezu. Berriro eskuratzean orri berriekin jarraitzen da. Eskaerek 2 segundo itxaroten dute orrien artean lehenetsita. Orri kopurua, emaitza-muga eta atzerapena alda ditzakezu, edo YouTubeko urte bat hilabetez hilabete bilatu.</string>
+    <string name="search_deep_choose">Orri gehigarriak</string>
+    <string name="search_deep_progress">%1$d/%2$d orri · %3$d bilduta · %4$d erakutsita</string>
+    <string name="search_collected_count">%1$d bilduta · %2$d erakutsita</string>
+    <string name="search_after_label">Ondoren (%1$s)</string>
+    <string name="search_before_label">Aurretik (%1$s)</string>
+    <string name="search_deep_custom">Pertsonalizatua…</string>
+    <string name="search_deep_custom_pages">Orri-muga (1–250)</string>
+    <string name="search_deep_delay_seconds">Orrien arteko atzerapena segundotan (0,3–10)</string>
+    <string name="search_deep_pages_invalid">Idatzi 1 eta 250 arteko zenbaki oso bat</string>
+    <string name="search_deep_delay_invalid">Idatzi 0,3 eta 10 segundo arteko atzerapena</string>
+    <string name="search_deep_result_limit">Bildutako gehieneko emaitzak (1–20.000)</string>
+    <string name="search_deep_results_invalid">Idatzi 1 eta 20.000 arteko zenbaki oso bat</string>
+    <string name="search_deep_monthly">Bilatu urte bat hilabetez hilabete (YouTube)</string>
+    <string name="search_deep_year">Urtea</string>
+    <string name="search_deep_year_invalid">Idatzi 1900 eta 9998 arteko urte bat</string>
+    <string name="search_deep_monthly_help">Hileroko bilketak emaitza-multzo berri bat hasten du hautatutako urterako eta igotze-dataren iragazkiak ordezten ditu. Orri- eta emaitza-mugak hilabete guztietan aplikatzen dira. Edozein unetan gelditu zaitezke, bildutako emaitzak galdu gabe. Baliteke YouTubek bat datozen bideo guztiak ez itzultzea.</string>
+</resources>

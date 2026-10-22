@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rotate_to_fullscreen_title">Biratu gailua pantaila osora pasatzeko</string>
+    <string name="rotate_to_fullscreen_summary">Sistemaren biraketa blokeatuta dagoenean, jarri telefonoa etzanda pantaila osora pasatzeko, eta jarri berriro zutik pantaila osotik irteteko.</string>
+    <string name="player_rotation_mode_title">Erreproduzigailuaren biraketa</string>
+    <string name="player_rotation_fixed">Finkoa (erabili pantaila osoko botoia)</string>
+    <string name="player_rotation_system">Jarraitu sistemaren biraketari</string>
+    <string name="player_rotation_sensors">Jarraitu gailuaren sentsoreei</string>
+</resources>

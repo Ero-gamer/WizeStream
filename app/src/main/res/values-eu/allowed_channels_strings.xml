@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="allowed_channels_title">Baimendutako kanalak</string>
+    <string name="allowed_channels_summary">Gako-hitz, kanal eta AiSList bidezko ezkutatze-arauetarako kanal-salbuespenak. Esplizituki blokeatutako bideoak ezkutuan jarraitzen dute. Honek ez ditu mugatutako edo kideentzako soilik diren bideoak desblokeatzen.</string>
+    <string name="allowed_channel_add">Gehitu harpidetutako kanal bat</string>
+    <string name="allowed_channel_remove_confirmation">Kendu kanal-salbuespen hau?</string>
+</resources>

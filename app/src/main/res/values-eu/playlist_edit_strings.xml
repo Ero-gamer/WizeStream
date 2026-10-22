@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="playlist_edit_mode">Editatu</string>
+    <string name="playlist_edit_done">Eginda</string>
+    <string name="playlist_swipe_remove_title">Irristatu erreprodukzio-zerrendako bideoak kentzeko</string>
+    <string name="playlist_swipe_remove_summary">Baimendu irristatuz kentzea tokiko erreprodukzio-zerrenda bat editatzean. Desgaituta hasierako pantailako erreprodukzio-zerrendetan.</string>
+</resources>

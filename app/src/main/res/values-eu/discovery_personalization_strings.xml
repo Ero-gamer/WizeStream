@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discovery_personalize">Pertsonalizatu aurkikuntza</string>
+    <string name="discovery_personalize_help">Lehenetsi gaiak zerbitzu honen aurkikuntza-jarioaren orri bakoitzean. Bereizi gako-hitzak komaz. Hobespen hauek aurkikuntza-orriei soilik aplikatzen zaizkie.</string>
+    <string name="discovery_interests">Gai edo kanal gogokoenak</string>
+    <string name="discovery_hidden">Ezkutatutako gako-hitzak edo kanalak</string>
+    <string name="discovery_hide_watched">Ezkutatu ikusitako bideoak</string>
+    <string name="discovery_hide_shorts">Ezkutatu Shorts-ak</string>
+    <string name="discovery_hide_live">Ezkutatu zuzeneko igorpenak</string>
+    <string name="discovery_reset">Berrezarri hobespenak</string>
+</resources>

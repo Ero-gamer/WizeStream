@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="invidious_instances_title">Gordetako Invidious instantziak</string>
+    <string name="invidious_instances_summary">Gehitu edo kendu fidagarriak diren HTTPS instantzien URLak, bat lerro bakoitzean.</string>
+    <string name="invidious_switch_instance_title">Aldatu Invidious instantzia</string>
+    <string name="invidious_switch_instance_summary">Aukeratu gordetako instantzia bat. Invidious gaituta dagoela aldatzeak aplikazioa berrabiarazten du.</string>
+    <string name="invidious_enabled_title">Erabili Invidious YouTuberako</string>
+    <string name="invidious_enabled_summary">Bidali YouTube eskaerak zure instantziaren bidez, bideoak eta irudiak barne. YouTuberako eskaera zuzenak blokeatuta daude. Instantziak APIa onartu eta multimedia lokalki proxy bidez igorri behar du. YouTuberen ezaugarri batzuk ez daude erabilgarri. Ezarpen hau aldatzeak aplikazioa berrabiarazten du.</string>
+    <string name="invidious_instance_title">Invidious instantzia</string>
+    <string name="invidious_instance_summary">Fidagarria den instantzia baten HTTPS erro-URLa. Haren kudeatzaileak zure eskaerak ikus ditzake. Gaituta dagoela instantzia aldatzeak aplikazioa berrabiarazten du.</string>
+    <string name="invidious_invalid_instance">Idatzi Invidious instantzia baten HTTPS erro-URLa, biderik, kredentzialik, kontsultarik edo zatirik gabe.</string>
+    <string name="invidious_media_error">Invidious instantziak erabili ezin den multimedia- edo manifestu-erantzuna itzuli du. Saiatu berriro geroago edo aukeratu bideo-proxya onartzen duen beste instantzia fidagarri bat.</string>
+    <string name="invidious_api_access_denied">Hautatutako Invidious instantziak APIrako sarbidea ukatu du (HTTP %1$s). Aukeratu beste instantzia fidagarri bat Ezarpenak → Edukia → Aldatu Invidious instantzia atalean.</string>
+    <string name="invidious_api_rate_limited">Hautatutako Invidious instantzia eskaerak mugatzen ari da (HTTP %1$s). Saiatu berriro geroago edo aukeratu beste instantzia fidagarri bat Ezarpenak → Edukia → Aldatu Invidious instantzia atalean.</string>
+    <string name="invidious_api_unavailable">Hautatutako Invidious instantzia ez dago erabilgarri (HTTP %1$s). Saiatu berriro geroago edo aukeratu beste instantzia fidagarri bat Ezarpenak → Edukia → Aldatu Invidious instantzia atalean.</string>
+    <string name="invidious_api_rejected">Hautatutako Invidious instantziak eskaera baztertu du (HTTP %1$s). Egiaztatu instantziaren helbidea edo aukeratu beste instantzia fidagarri bat Ezarpenak → Edukia → Aldatu Invidious instantzia atalean.</string>
+</resources>

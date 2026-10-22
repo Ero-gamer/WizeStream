@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.Transaction
+import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.Flowable
 import io.reactivex.rxjava3.core.Maybe
 import org.schabi.newpipe.database.BasicDAO
@@ -174,6 +175,24 @@ abstract class SubscriptionDAO : BasicDAO<SubscriptionEntity> {
         serviceId: Int,
         url: String
     ): Maybe<SubscriptionEntity>
+
+    @Query(
+        """
+        UPDATE subscriptions
+        SET name = :name, avatar_url = :avatarUrl,
+            description = :description, subscriber_count = :subscriberCount
+        WHERE profile_id = :profileId AND service_id = :serviceId AND url = :url
+        """
+    )
+    abstract fun updateChannelInfoForProfile(
+        profileId: String,
+        serviceId: Int,
+        url: String,
+        name: String?,
+        avatarUrl: String?,
+        description: String?,
+        subscriberCount: Long
+    ): Completable
 
     @Query("SELECT * FROM subscriptions WHERE url = :url AND service_id = :serviceId")
     abstract fun getSubscriptionDirect(serviceId: Int, url: String): SubscriptionEntity?

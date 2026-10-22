@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="rounded_mini_player_title">Mini-erreproduzigailuaren ertz biribilduak</string>
+    <string name="rounded_mini_player_summary">Biribildu erreproduzigailu tolestuaren goiko ertzak.</string>
+</resources>

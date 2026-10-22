@@ -8,6 +8,7 @@ import io.reactivex.rxjava3.core.Flowable
 import io.reactivex.rxjava3.schedulers.Schedulers
 import org.schabi.newpipe.NewPipeDatabase
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity
+import org.schabi.newpipe.database.feed.model.FeedGroupSubscriptionEntity
 import org.schabi.newpipe.database.stream.model.StreamEntity
 import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionDAO
@@ -92,30 +93,30 @@ class SubscriptionManager @JvmOverloads constructor(
     }
 
     fun upsertAll(infoList: List<Pair<ChannelInfo, ChannelTabInfo?>>) {
-        val listEntities = infoList.map {
-            val entity = SubscriptionEntity.from(it.first).apply {
-                profileId = this@SubscriptionManager.profileId
-            }
-            if (entity.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
-                entity.youtubeModeMask = currentYoutubeModeMask
-            }
-            subscriptionTable.getSubscriptionDirectForProfile(
-                profileId,
-                entity.serviceId,
-                requireNotNull(entity.url)
-            )
-                ?.let { existing ->
-                    entity.notificationMode = existing.notificationMode
-                    entity.notificationKeywords = existing.notificationKeywords
-                    entity.youtubeModeMask = existing.youtubeModeMask or
-                        currentYoutubeModeMask
+        // Keep subscription ids and feed foreign keys under the same write transaction.
+        // Otherwise an unsubscribe can remove a parent after upsert but before its feed rows.
+        val storedEntities = database.runInTransaction<List<SubscriptionEntity>> {
+            val listEntities = infoList.map {
+                val entity = SubscriptionEntity.from(it.first).apply {
+                    profileId = this@SubscriptionManager.profileId
                 }
-            entity
-        }
-        subscriptionTable.upsertAll(listEntities)
-        listEntities.forEach(::recordSubscriptionUpsert)
-
-        database.runInTransaction {
+                if (entity.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
+                    entity.youtubeModeMask = currentYoutubeModeMask
+                }
+                subscriptionTable.getSubscriptionDirectForProfile(
+                    profileId,
+                    entity.serviceId,
+                    requireNotNull(entity.url)
+                )
+                    ?.let { existing ->
+                        entity.notificationMode = existing.notificationMode
+                        entity.notificationKeywords = existing.notificationKeywords
+                        entity.youtubeModeMask = existing.youtubeModeMask or
+                            currentYoutubeModeMask
+                    }
+                entity
+            }
+            subscriptionTable.upsertAll(listEntities)
             infoList.forEachIndexed { index, info ->
                 val streams = info.second?.relatedItems?.filterIsInstance<StreamInfoItem>()
                     ?: emptyList()
@@ -130,7 +131,10 @@ class SubscriptionManager @JvmOverloads constructor(
                     uploaderAvatarUrl = listEntities[index].avatarUrl
                 )
             }
+            listEntities
         }
+        // Never publish a sync change for subscription/feed data that rolled back.
+        storedEntities.forEach(::recordSubscriptionUpsert)
     }
 
     /**
@@ -159,19 +163,17 @@ class SubscriptionManager @JvmOverloads constructor(
     }
 
     fun updateChannelInfo(info: ChannelInfo): Completable {
-        return subscriptionTable
-            .getSubscriptionForProfile(profileId, info.serviceId, info.url)
-            .flatMapCompletable {
-                Completable.fromRunnable {
-                    it.apply {
-                        name = info.name
-                        avatarUrl = ImageStrategy.imageListToDbUrl(info.avatars)
-                        description = info.description
-                        subscriberCount = info.subscriberCount
-                    }
-                    subscriptionTable.update(it)
-                }
-            }
+        // Let Room schedule the write instead of running a blocking update in a query callback.
+        // Updating only metadata also preserves concurrent notification and mode changes.
+        return subscriptionTable.updateChannelInfoForProfile(
+            profileId,
+            info.serviceId,
+            info.url,
+            info.name,
+            ImageStrategy.imageListToDbUrl(info.avatars),
+            info.description,
+            info.subscriberCount
+        )
     }
 
     fun updateNotificationMode(serviceId: Int, url: String, @NotificationMode mode: Int): Completable {
@@ -299,6 +301,58 @@ class SubscriptionManager @JvmOverloads constructor(
         }
         recordSubscriptionUpsert(storedEntity)
         return storedEntity
+    }
+
+    /** Copies a group's memberships atomically, retaining existing destination subscriptions. */
+    fun copyGroupToProfile(groupId: Long, targetProfileId: String): Long {
+        require(targetProfileId.isNotBlank() && targetProfileId != profileId)
+        val changedSubscriptions = mutableListOf<SubscriptionEntity>()
+        val copiedGroupId = database.runInTransaction<Long> {
+            val groups = database.feedGroupDAO()
+            val source = requireNotNull(groups.getGroupDirectForProfile(profileId, groupId)) {
+                "The channel group no longer exists in this profile"
+            }
+            val target = groups.getAllDirectForProfile(targetProfileId)
+                .firstOrNull { it.name == source.name && it.icon == source.icon }
+            val targetId = target?.uid ?: groups.insert(
+                source.copy(uid = 0, profileId = targetProfileId)
+            )
+            val memberships = groups.getSubscriptionIdsForDirectForProfile(profileId, groupId)
+                .mapNotNull { subscriptionTable.getSubscriptionForProfile(profileId, it) }
+                .map { sourceSubscription ->
+                    val existing = subscriptionTable.getSubscriptionDirectForProfile(
+                        targetProfileId,
+                        sourceSubscription.serviceId,
+                        requireNotNull(sourceSubscription.url)
+                    )
+                    val subscription = if (existing == null) {
+                        sourceSubscription.copy(
+                            uid = 0,
+                            profileId = targetProfileId,
+                            notificationMode = 0,
+                            notificationKeywords = ""
+                        ).also {
+                            it.uid = subscriptionTable.insert(it)
+                            changedSubscriptions += it
+                        }
+                    } else {
+                        if (existing.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID) {
+                            val combinedModes = existing.youtubeModeMask or sourceSubscription.youtubeModeMask
+                            if (combinedModes != existing.youtubeModeMask) {
+                                existing.youtubeModeMask = combinedModes
+                                subscriptionTable.update(existing)
+                                changedSubscriptions += existing
+                            }
+                        }
+                        existing
+                    }
+                    FeedGroupSubscriptionEntity(targetId, subscription.uid)
+                }
+            groups.insertSubscriptionsToGroup(memberships)
+            targetId
+        }
+        changedSubscriptions.forEach(::recordSubscriptionUpsert)
+        return copiedGroupId
     }
 
     fun deleteSubscription(subscriptionEntity: SubscriptionEntity) {

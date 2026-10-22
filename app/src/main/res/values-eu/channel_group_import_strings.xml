@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="migration_subscriptions_groups_option">Harpidetzak (%1$d kanal, %2$d talde)</string>
+    <string name="migration_groups_complete">Inportatutako kanal-taldeak: %1$d</string>
+</resources>
