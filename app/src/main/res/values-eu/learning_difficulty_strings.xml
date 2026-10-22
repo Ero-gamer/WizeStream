@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="learning_difficulty_title">Ikasgaien zailtasuna</string>
+    <string name="learning_difficulty_summary">Baloratu ikasgaiak eta berrikusi bideo zailak aurrera egin aurretik</string>
+    <string name="learning_difficulty_format">Zailtasuna: %1$s</string>
+    <string-array name="learning_difficulty_labels">
+        <item>Baloratu gabe</item>
+        <item>Erraza</item>
+        <item>Ertaina</item>
+        <item>Zaila</item>
+    </string-array>
+    <string name="learning_review_title">Berrikusi ikasgaiak</string>
+    <string name="learning_review_search">Bilatu ikastaroko bideoak</string>
+    <string name="learning_review_hard_only">Zailak soilik</string>
+    <string name="learning_review_all">Ikasgai guztiak</string>
+    <string name="learning_review_watch">Ikusi ikasgaia</string>
+    <string name="learning_review_count">Berrikusi ikasgai zailak (%1$d!)</string>
+    <string name="learning_review_error">Ezin izan dira ikasgaiak kargatu</string>
+    <string name="learning_difficulty_storage_summary">Balorazioak aplikazioaren babeskopietan sartzen dira. Aukeratu gailu fidagarriekin partekatu nahi dituzun; bi gailuek gaitu behar dute sinkronizazioa.</string>
+    <string name="device_sync_category_lesson_difficulty">Ikasgaien zailtasuna</string>
+    <string-array name="learning_difficulty_modes">
+        <item>Desaktibatuta</item>
+        <item>Gailuan soilik</item>
+        <item>Sinkronizatu gailu fidagarriekin</item>
+    </string-array>
+</resources>

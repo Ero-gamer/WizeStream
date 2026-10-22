@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="takeout_import_title">Inportatu Google Takeout</string>
+    <string name="takeout_import_summary">Gehitu YouTubeko erreprodukzio-zerrendak, harpidetzak eta historia ZIP, CSV, JSON edo HTML fitxategietatik</string>
+    <string name="takeout_import_help">Hautatu YouTubeko erreprodukzio-zerrendak, harpidetzak eta historia dituen Takeout ZIP bat, erauzitako erreprodukzio-zerrenda edo harpidetzen CSV bat, edo ikusitakoen/bilaketen historiaren JSON edo HTML bat. Aukeratu JSON historia esportatzean, data fidagarriak izateko. Sartu erreprodukzio-zerrenden metadatuen CSV fitxategiak ZIPean, zerrenden izenburuak eta jatorrizko estekak gordetzeko. Tokiko erreprodukzio-zerrendek (Takeout) atzizkia dute, zerrenda hutsak barne. Berriro inportatzean falta diren bideo-agerraldiak gehitzen dira, eta bat datozen harpidetza- eta historia-sarrerak saltatzen dira. Lehendik dagoen zerrenden ordena, kanalen ezarpenak eta bideoen xehetasunak mantentzen dira. Jatorrizko erreprodukzio-zerrenden estekak laster-markatu ere egiten dira, ematen badira. Baliteke erreprodukzio-zerrendetako bideoen izenburuak erabilgarri ez egotea. Inportazioa gailu honetan exekutatzen da. Hautatu 256 MiB baino txikiagoa den esportazio bat, igotako bideo-fitxategirik gabe.</string>
+    <string name="takeout_import_status_title">Azken Takeout inportazioa</string>
+    <string name="takeout_import_idle">Oraindik ez da inportaziorik osatu</string>
+    <string name="takeout_import_queued">Takeout inportazioa ilaran edo abian. Aurrerapena Babeskopia eta leheneratzea ezarpenetan ikusten da.</string>
+    <string name="takeout_import_result">Gehituta: %1$d tokiko erreprodukzio-zerrenda (%2$d bideorekin), %5$d zerrenda-laster-marka, %6$d harpidetza, %3$d ikustaldi-gertaera eta %7$d bilaketa. Bikoiztutako edo erabilgarri ez dauden %4$d sarrera saltatu dira.</string>
+    <string name="takeout_import_error">Takeout inportazioa ezin izan da amaitu: %1$s</string>
+</resources>

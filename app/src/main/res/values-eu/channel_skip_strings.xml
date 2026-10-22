@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_skip_settings">Saltatu kanal honen sarrera/amaiera</string>
+    <string name="channel_skip_title">Sarrera/amaiera: %1$s</string>
+    <string name="channel_skip_summary">Kanal honen bideo grabatuei aplikatzen zaie uneko profilean. Erabili 0 desgaitzeko. Saltatzeko iraupenen batura baino laburragoak diren bideoak normal erreproduzitzen dira. Aldaketak erreprodukzioan bertan aplikatzen dira. Sarreran edo amaieran eskuz egindako jauziak errespetatzen dira.</string>
+    <string name="channel_skip_start">Saltatu hasieratik (segundoak)</string>
+    <string name="channel_skip_end">Saltatu amaiera aurretik (segundoak)</string>
+    <string name="channel_skip_invalid">Idatzi 0 eta 3600 arteko zenbaki oso bat</string>
+</resources>

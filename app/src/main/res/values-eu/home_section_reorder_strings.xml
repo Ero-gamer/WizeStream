@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="reorder_home_section">Berrordenatu hasierako atala</string>
+    <string name="move_home_section_up">Igo</string>
+    <string name="move_home_section_down">Jaitsi</string>
+</resources>

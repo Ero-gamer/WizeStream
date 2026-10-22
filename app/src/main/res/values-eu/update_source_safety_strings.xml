@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_update_store_source_warning">WizeStream IzzyOnDroid edo beste aplikazio-denda baten bidez instalatu baduzu, eguneratu denda beraren bidez ahal duzun guztietan. GitHubetik zuzenean deskargatutako APKek ez dute zure aplikazio-dendak egiten duen berrikuspena eta egiaztapena igarotzen.</string>
+    <string name="app_update_download_from_github">Deskargatu GitHubetik</string>
+    <string name="app_update_no_browser">Ez da nabigatzaile bateragarririk aurkitu. Ireki bertsioaren orria eskuz.</string>
+    <string name="app_update_check_setting_description">Bilatu eguneratzeak GitHub Releases-en. IzzyOnDroid edo beste aplikazio-denda baten bidez instalatu baduzu, eguneratu denda beraren bidez ahal duzun guztietan; GitHubeko APK zuzenek ez dute dendaren berrikuspena eta egiaztapena igarotzen.</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_externally">Deskargatu kanpoko aplikazioarekin</string>
+    <string name="external_downloader_title">Kanpoko deskargatzailea</string>
+    <string name="external_downloader_summary">Eskaini beste aplikazio bat bideo- edo audio-igorpen bat deskargatzean</string>
+    <string name="external_downloader_package_title">Deskargatzaile-aplikazioaren paketea</string>
+    <string name="external_downloader_package_help">Idatzi partekatutako bideo-estekak onartzen dituen aplikazio baten pakete-izena, edo utzi hutsik aldi bakoitzean aplikazio bat aukeratzeko.</string>
+    <string name="external_downloader_invalid_package">Idatzi baliozko deskargatzaile-pakete baten izena.</string>
+    <string name="external_downloader_missing_app">Konfiguratutako deskargatzailea ez dago erabilgarri. Aukeratu beste aplikazio bat.</string>
+    <string name="external_downloader_unavailable">Ez dago deskarga-esteka hau ireki dezakeen aplikazio bateragarririk.</string>
+</resources>

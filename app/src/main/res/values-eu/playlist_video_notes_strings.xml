@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="playlist_video_notes">Bideoaren oharrak</string>
+    <string name="playlist_video_notes_help">Oharrak bideo honenak dira, eta bideoa duten erreprodukzio-zerrenda guztietan partekatzen dira.</string>
+    <string name="copy_timestamped_link">Kopiatu esteka uneko kokapenean</string>
+    <string name="playlist_video_notes_about">Ohar hauei buruz</string>
+</resources>

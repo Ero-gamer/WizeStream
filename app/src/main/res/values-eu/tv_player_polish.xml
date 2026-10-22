@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_direction">D-pad lasterbidea</string>
+    <string name="remote_direction_scope">Aukeratu norabide bat pantaila osoko erreprodukziorako. D-pad nabigazio arrunta erabilgarri dago menuetan eta erreproduzigailuaren kontrol ikusgaietan.</string>
+    <string name="tv_recommended_videos">Gomendatutako bideoak</string>
+</resources>

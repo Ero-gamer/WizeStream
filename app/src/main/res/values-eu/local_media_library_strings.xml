@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="local_media_tracks">Pistak</string>
+    <string name="local_media_artists">Artistak</string>
+    <string name="local_media_albums">Albumak</string>
+    <string name="local_media_genres">Generoak</string>
+    <string name="local_media_unknown_artist">Artista ezezaguna</string>
+    <string name="local_media_unknown_album">Album ezezaguna</string>
+    <string name="local_media_unknown_genre">Genero ezezaguna</string>
+    <string name="local_media_back_to_categories">Itzuli kategorietara</string>
+    <string name="local_media_folders">Karpetak</string>
+    <string name="local_media_unknown_folder">Karpeta ezezaguna</string>
+    <string name="local_media_play_all">Erreproduzitu denak</string>
+    <string name="local_media_shuffle_all">Nahastu denak</string>
+    <string name="local_media_group_more_actions">Taldeko ekintza gehiago</string>
+    <string name="local_media_browse_folders">Arakatu karpetak</string>
+    <string name="local_media_storage_locations">Biltegiratze-kokapenak</string>
+    <string name="local_media_add_folder">Gehitu karpeta</string>
+    <string name="local_media_browse_back">Itzuli karpeta gurasora</string>
+    <string name="local_media_folder_unavailable">Karpeta hau ez dago erabilgarri</string>
+    <string name="local_media_remove_folder">Kendu hautatutako karpeta</string>
+    <string name="local_media_folder_empty">Ez dago multimedia bateragarririk karpeta honetan</string>
+    <string name="local_media_size_megabytes">%1$.1f MB</string>
+    <plurals name="local_media_track_count">
+        <item quantity="one">Pista %d</item>
+        <item quantity="other">%d pista</item>
+    </plurals>
+</resources>

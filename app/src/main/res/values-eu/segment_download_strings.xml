@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_segments">Deskargatu hautatutako zatiak</string>
+    <string name="download_segments_description">Aukeratu denbora-tarte bat edo kapituluak. Hautatutako zatiak MP4 bideo- edo M4A audio-fitxategi bakar batean elkartzen dira. Lehenik iturburu osoa deskargatzen da, eta aldi baterako biltegia behar da esportazioan.</string>
+    <string name="download_segment_start">Hasiera (segundoak edo hh:mm:ss)</string>
+    <string name="download_segment_end">Amaiera (segundoak edo hh:mm:ss)</string>
+    <string name="download_select_chapters">Hautatu kapituluak</string>
+    <string name="download_entire_stream">Igorpen osoa</string>
+    <string name="download_segment_invalid">Idatzi igorpenaren iraupenaren barruko baliozko tarte bat, amaiera hasieraren ondoren dagoela.</string>
+    <string name="download_segments_selected">Hautatutako zatiak: %1$d</string>
+</resources>

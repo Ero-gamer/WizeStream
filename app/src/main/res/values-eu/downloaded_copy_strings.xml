@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="prefer_downloaded_copies_title">Erabili deskargatutako kopiak automatikoki</string>
+    <string name="prefer_downloaded_copies_summary">Erreproduzitu deskargatutako fitxategi osoak igorpena sarean eskuratu gabe. Falta diren edo irakurri ezin diren fitxategiekin sareko igorpena erabiltzen da. Desgaitu sareko kalitate- eta audio-pista aukerak erabiltzeko.</string>
+    <string name="playing_downloaded_copy">Deskargatutako kopia bat erreproduzitzen. Baliteke jatorrizko igorpenaren xehetasunak konexiorik gabe erabilgarri ez egotea.</string>
+</resources>

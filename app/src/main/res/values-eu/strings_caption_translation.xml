@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="caption_translation_category_title">Azpitituluen itzulpena</string>
+    <string name="caption_auto_translate_title">Itzuli azpitituluak automatikoki</string>
+    <string name="caption_auto_translate_summary">Erabili YouTuberen itzulpena azpitituluak hautatutako hizkuntzan erabilgarri ez daudenean</string>
+    <string name="caption_translation_language_title">Itzulpen-hizkuntza</string>
+    <string name="caption_translation_system_language">Sistemaren hizkuntza</string>
+</resources>

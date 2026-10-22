@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feed_sort_title">Ordenatu jarioa</string>
+    <string name="feed_sort_publication">Argitaratze-data (berrienak lehenik)</string>
+    <string name="feed_sort_discovery">Lehen aldiz aurkitua (berrienak lehenik)</string>
+</resources>
