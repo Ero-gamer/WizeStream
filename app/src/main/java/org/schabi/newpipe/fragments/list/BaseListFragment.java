@@ -1,5 +1,7 @@
 package org.schabi.newpipe.fragments.list;
 
+import org.schabi.newpipe.recommendations.LocalRecommendations;
+
 import static org.schabi.newpipe.ktx.ViewUtils.animate;
 import static org.schabi.newpipe.ktx.ViewUtils.animateHideRecyclerViewAllowingScrolling;
 
@@ -21,6 +23,7 @@ import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.profiles.KidsMode;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.extractor.InfoItem;
 import org.schabi.newpipe.extractor.ServiceList;
@@ -344,26 +347,28 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
         final List<String> labels = new ArrayList<>();
         final List<Runnable> actions = new ArrayList<>();
 
-        labels.add(getString(R.string.subscribe_button_title));
-        actions.add(() -> ChannelSubscriptionActions.subscribe(requireContext(), selectedItem)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(
-                        ignored -> Toast.makeText(requireContext(),
-                                R.string.you_successfully_subscribed,
-                                Toast.LENGTH_SHORT).show(),
-                        error -> ErrorUtil.showUiErrorSnackbar(this,
-                                "Subscribing to channel", error)));
+        if (KidsMode.isSubscriptionAllowed(requireContext(), selectedItem.getServiceId())) {
+            labels.add(getString(R.string.subscribe_button_title));
+            actions.add(() -> ChannelSubscriptionActions.subscribe(requireContext(), selectedItem)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(
+                            ignored -> Toast.makeText(requireContext(),
+                                    R.string.you_successfully_subscribed,
+                                    Toast.LENGTH_SHORT).show(),
+                            error -> ErrorUtil.showUiErrorSnackbar(this,
+                                    "Subscribing to channel", error)));
 
-        final List<ProfileRecord> otherProfiles =
-                ChannelSubscriptionActions.otherProfiles(requireContext());
-        if (!otherProfiles.isEmpty()) {
-            labels.add(getString(R.string.channel_subscribe_to_profile));
-            actions.add(() -> showSubscribeToProfileDialog(selectedItem, otherProfiles));
+            final List<ProfileRecord> otherProfiles =
+                    ChannelSubscriptionActions.otherProfiles(requireContext());
+            if (!otherProfiles.isEmpty()) {
+                labels.add(getString(R.string.channel_subscribe_to_profile));
+                actions.add(() -> showSubscribeToProfileDialog(selectedItem, otherProfiles));
+            }
+
+            labels.add(getString(R.string.feed_groups_header_title));
+            actions.add(() -> showAddToGroupDialog(selectedItem));
         }
-
-        labels.add(getString(R.string.feed_groups_header_title));
-        actions.add(() -> showAddToGroupDialog(selectedItem));
 
         labels.add(getString(R.string.block_channel));
         actions.add(() -> {
@@ -574,8 +579,16 @@ public abstract class BaseListFragment<I, N> extends BaseStateFragment<I>
 
     protected void showInfoItemDialog(final StreamInfoItem item) {
         try {
-            new InfoItemDialog.Builder(getActivity(), getContext(), this, item)
-                    .addEntry(new StreamDialogEntry(R.string.stream_select,
+            final InfoItemDialog.Builder builder = new InfoItemDialog.Builder(
+                    getActivity(), getContext(), this, item);
+            if (LocalRecommendations.enabled(requireContext())) {
+                builder.addEntry(new StreamDialogEntry(R.string.local_recommendations_exclude,
+                        (fragment, selected) -> {
+                            LocalRecommendations.exclude(requireContext(), selected);
+                            reloadContent();
+                        }));
+            }
+            builder.addEntry(new StreamDialogEntry(R.string.stream_select,
                             (fragment, selected) -> streamSelection.start(selected)))
                     .create().show();
         } catch (final IllegalArgumentException e) {

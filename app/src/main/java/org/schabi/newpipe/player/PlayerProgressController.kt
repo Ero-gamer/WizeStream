@@ -47,9 +47,12 @@ internal class PlayerProgressController(
             return
         }
 
+        player.queueRecovery.checkpoint()
         historyController.updateLearningSession()
-        sponsorBlockController.onProgress()
-        player.channelSkipController.onProgress()
+        if (!player.abRepeat.active) {
+            sponsorBlockController.onProgress()
+            player.channelSkipController.onProgress()
+        }
         val exoPlayer = player.exoPlayer
         dispatch(
             max(exoPlayer.currentPosition.toInt(), 0),

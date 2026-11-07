@@ -45,6 +45,7 @@ public class DownloadManager {
     private static final String DOWNLOADS_METADATA_FOLDER = "pending_downloads";
 
     private final FinishedMissionStore mFinishedMissionStore;
+    private final Context appContext;
 
     private final ArrayList<DownloadMission> mMissionsPending = new ArrayList<>();
     private final ArrayList<FinishedMission> mMissionsFinished;
@@ -73,6 +74,7 @@ public class DownloadManager {
             Log.d(TAG, "new DownloadManager instance. 0x" + Integer.toHexString(this.hashCode()));
         }
 
+        appContext = context.getApplicationContext();
         mFinishedMissionStore = new FinishedMissionStore(context);
         mHandler = handler;
         mMainStorageAudio = storageAudio;
@@ -276,6 +278,11 @@ public class DownloadManager {
 
 
     public void resumeMission(DownloadMission mission) {
+        if (!mission.running && !mission.enqueued) mission.setEnqueued(true);
+        if (!org.schabi.newpipe.download.schedule.DownloadWindow.allowed(appContext)) {
+            mission.setEnqueued(true);
+            return;
+        }
         if (!mission.running && (!mission.requiresUnmeteredNetwork
                 || canDownloadInCurrentNetwork(mission))) {
             mission.start();
@@ -294,18 +301,24 @@ public class DownloadManager {
     }
 
     public void pauseMission(DownloadMission mission) {
+        mission.setEnqueued(false);
         if (mission.running) {
-            mission.setEnqueued(false);
             mission.pause();
         }
     }
 
     public void deleteMission(Mission mission, boolean alsoDeleteFile) {
         synchronized (this) {
+            if (alsoDeleteFile && mission.storage != null) {
+                org.schabi.newpipe.download.OfflineSponsorBlockStore.remove(appContext,
+                        mission.storage.getUri().toString());
+            }
             if (mission instanceof DownloadMission) {
                 mMissionsPending.remove(mission);
                 ((DownloadMission) mission).cancel(alsoDeleteFile);
             } else if (mission instanceof FinishedMission) {
+                org.schabi.newpipe.download.offline.OfflineLibrary.forget(appContext,
+                        (FinishedMission) mission);
                 mMissionsFinished.remove(mission);
                 mFinishedMissionStore.deleteMission(mission);
                 if (alsoDeleteFile) {
@@ -325,6 +338,8 @@ public class DownloadManager {
             if (mission instanceof DownloadMission) {
                 mMissionsPending.remove(mission);
             } else if (mission instanceof FinishedMission) {
+                org.schabi.newpipe.download.offline.OfflineLibrary.forget(appContext,
+                        (FinishedMission) mission);
                 mMissionsFinished.remove(mission);
                 mFinishedMissionStore.deleteMission(mission);
             }
@@ -428,6 +443,7 @@ public class DownloadManager {
     public void pauseAllMissions(boolean force) {
         synchronized (this) {
             for (DownloadMission mission : mMissionsPending) {
+                if (!force && !mission.isFinished()) mission.setEnqueued(false);
                 if (!mission.running || mission.isPsRunning() || mission.isFinished()) continue;
 
                 if (force) {
@@ -446,7 +462,7 @@ public class DownloadManager {
             for (DownloadMission mission : mMissionsPending) {
                 if (mission.running || mission.isCorrupt()) continue;
 
-                mission.start();
+                resumeMission(mission);
             }
         }
     }
@@ -456,12 +472,13 @@ public class DownloadManager {
      *
      * @param mission the desired mission
      */
-    void setFinished(DownloadMission mission) {
+    FinishedMission setFinished(DownloadMission mission) {
         synchronized (this) {
             mMissionsPending.remove(mission);
             FinishedMission finishedMission = new FinishedMission(mission);
             mMissionsFinished.add(0, finishedMission);
             mFinishedMissionStore.addFinishedMission(finishedMission);
+            return finishedMission;
         }
     }
 
@@ -497,6 +514,14 @@ public class DownloadManager {
         }
     }
 
+    public synchronized java.util.List<FinishedMission> getFinishedMissionsSnapshot() {
+        return new ArrayList<>(mMissionsFinished);
+    }
+
+    public synchronized java.util.List<DownloadMission> getPendingMissionsSnapshot() {
+        return new ArrayList<>(mMissionsPending);
+    }
+
     public MissionIterator getIterator() {
         mSelfMissionsControl = true;
         return new MissionIterator();
@@ -508,6 +533,7 @@ public class DownloadManager {
     public void forgetFinishedDownloads() {
         synchronized (this) {
             for (FinishedMission mission : mMissionsFinished) {
+                org.schabi.newpipe.download.offline.OfflineLibrary.forget(appContext, mission);
                 mFinishedMissionStore.deleteMission(mission);
             }
             mMissionsFinished.clear();
@@ -515,6 +541,7 @@ public class DownloadManager {
     }
 
     private boolean canDownloadInCurrentNetwork() {
+        if (!org.schabi.newpipe.download.schedule.DownloadWindow.allowed(appContext)) return false;
         if (mLastNetworkStatus == NetworkState.Unavailable) return false;
         return !(mPrefMeteredDownloads && mLastNetworkStatus == NetworkState.MeteredOperating);
     }

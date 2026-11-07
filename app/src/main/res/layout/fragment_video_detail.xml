@@ -664,9 +664,16 @@
         android:alpha="0.9"
         android:background="?attr/windowBackground">
 
+        <FrameLayout
+            android:id="@+id/overlay_video"
+            android:layout_width="106dp"
+            android:layout_height="60dp"
+            android:layout_alignParentStart="true"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/overlay_thumbnail"
-            android:layout_width="62dp"
+            android:layout_width="106dp"
             android:layout_height="60dp"
             android:layout_alignParentStart="true"
             android:background="@color/transparent_background_color"
@@ -725,6 +732,7 @@
             android:layout_width="wrap_content"
             android:layout_height="60dp"
             android:layout_alignParentEnd="true"
+            android:focusable="false"
             android:gravity="center_vertical"
             android:theme="@style/ContrastTintTheme"
             tools:ignore="RtlHardcoded">
@@ -735,6 +743,7 @@
                 android:layout_height="match_parent"
                 android:background="?attr/selectableItemBackground"
                 android:contentDescription="@string/title_activity_play_queue"
+                android:focusable="true"
                 android:scaleType="center"
                 android:src="@drawable/ic_list"
                 tools:ignore="RtlHardcoded" />
@@ -756,6 +765,7 @@
                 android:layout_height="match_parent"
                 android:background="?attr/selectableItemBackground"
                 android:contentDescription="@string/close"
+                android:focusable="true"
                 android:paddingRight="8dp"
                 android:scaleType="center"
                 android:src="@drawable/ic_close"

@@ -108,6 +108,7 @@ open class App :
         // Initialize settings first because other initializations can use its values
         org.schabi.newpipe.learning.LearningDifficulty.migrate(this)
         NewPipeSettings.initSettings(this)
+        org.schabi.newpipe.player.recovery.QueueRecovery.initialize(this)
         // Apply the saved mode before AppCompat attaches the first activity's base context.
         // Waiting until MainActivity.onCreate can initially resolve light resources for a
         // forced dark/black theme, especially on pre-Android 12 cold starts.
@@ -120,6 +121,8 @@ open class App :
             backendPreferences.getString(getString(R.string.invidious_instance_key), "")
         )
 
+        org.schabi.newpipe.settings.InvidiousMediaPreferences.configure(this)
+
         NewPipe.init(
             getDownloader(),
             Localization.getPreferredLocalization(this),
@@ -131,6 +134,7 @@ open class App :
         StateSaver.init(this)
         initNotificationChannels()
         org.schabi.newpipe.download.AutomaticDownloads.initialize(this)
+        org.schabi.newpipe.download.schedule.DownloadWindow.schedule(this)
         AiSListSyncWorker.initialize(this)
         org.schabi.newpipe.learning.LearningReminders.initialize(this)
 
@@ -148,6 +152,7 @@ open class App :
             )
         )
 
+        org.schabi.newpipe.local.cleanup.ExitCleanup.initialize(this)
         configureRxJavaErrorHandler()
         initializeDeviceSyncScheduling()
         org.schabi.newpipe.local.feed.service.BackgroundFeedRefreshWorker.initialize(this)

@@ -34,7 +34,9 @@ val hasReleaseSigningConfig = listOf(
 val releaseAbi = providers.gradleProperty("releaseAbi").orElse("arm").get()
 val releaseAbiFilters = when (releaseAbi) {
     "arm" -> setOf("arm64-v8a", "armeabi-v7a")
+
     "x86_64" -> setOf("x86_64")
+
     else -> throw GradleException(
         "Unsupported releaseAbi '$releaseAbi'. Expected 'arm' or 'x86_64'."
     )
@@ -255,6 +257,9 @@ dependencies {
     // Desugaring
     coreLibraryDesugaring(libs.android.desugar)
 
+    // Bounded linear-time expressions for user-defined content filters
+    implementation(libs.re2j)
+
     // NewPipe libraries
     implementation(libs.newpipe.nanojson)
     implementation("com.github.evermind-zz:hlsdownloader:1.0.0")
@@ -398,6 +403,7 @@ dependencies {
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine:5.13.4")
 
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.androidx.runner)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.assertj.core)

@@ -54,6 +54,7 @@ import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
 import io.reactivex.rxjava3.core.Single
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.schedulers.Schedulers
+import java.lang.ref.WeakReference
 import java.time.OffsetDateTime
 import java.util.function.Consumer
 import org.schabi.newpipe.NewPipeDatabase
@@ -112,6 +113,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
 
     private var groupId = FeedGroupEntity.GROUP_ALL_ID
     private var groupName = ""
+    private var groupSelector: FeedGroupSelector? = null
     private var oldestSubscriptionUpdate: OffsetDateTime? = null
     private var latestLoadedState: FeedState.LoadedState? = null
     private var contextualSearchQuery = ""
@@ -125,11 +127,14 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
     var feedHeaderExpanded = true
 
     private var noteBadges: VideoNoteBadges? = null
+    private var feedQuickAdd: org.schabi.newpipe.local.feed.quickadd.FeedQuickAddController? = null
+    private var feedPreview: org.schabi.newpipe.local.feed.preview.FeedPreviewController? = null
     private lateinit var groupAdapter: GroupieAdapter
     private var streamSelection: StreamSelectionController? = null
 
     private lateinit var onSettingsChangeListener: SharedPreferences.OnSharedPreferenceChangeListener
     private var updateListViewModeOnResume = false
+    private var updateFeedItems = true
 
     private var lastHighlightedRangeEnd = 0
 
@@ -220,9 +225,16 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
         })
 
         feedBinding.itemsList.adapter = groupAdapter
+        feedQuickAdd = org.schabi.newpipe.local.feed.quickadd.FeedQuickAddController(feedBinding.itemsList)
+        feedPreview = org.schabi.newpipe.local.feed.preview.FeedPreviewController(feedBinding.itemsList, { stream, queue ->
+            NavigationHelper.openVideoDetailFragment(requireContext(), fm, stream.serviceId, stream.url, stream.title, queue, false)
+        })
         noteBadges = VideoNoteBadges(requireContext(), Runnable { groupAdapter.notifyDataSetChanged() })
         noteBadges?.watch(feedBinding.itemsList)
         setupListViewMode()
+        activity.supportActionBar?.let {
+            groupSelector = FeedGroupSelector(requireContext(), it, { groupId }, ::selectFeedGroup)
+        }
         if (selectedStreamFilter != StreamListFilter.NONE) {
             feedBinding.streamFilterChips.streamFilterChipGroup
                 .check(selectedStreamFilter.chipId)
@@ -230,6 +242,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
     }
 
     override fun onPause() {
+        feedPreview?.stop()
         super.onPause()
         listState = feedBinding.itemsList.layoutManager?.onSaveInstanceState()
     }
@@ -259,7 +272,29 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
         }
     }
 
+    private fun selectFeedGroup(id: Long, name: String) {
+        val changed = groupId != id
+        groupId = id
+        groupName = name
+        // Preserve the selection across view and process recreation without adding screens.
+        if (arguments == null) arguments = Bundle()
+        requireArguments().putLong(KEY_GROUP_ID, id)
+        requireArguments().putString(KEY_GROUP_NAME, name)
+        activity.invalidateOptionsMenu()
+        if (!changed) return
+        feedPreview?.stop()
+        listState = null
+        latestLoadedState = null
+        oldestSubscriptionUpdate = null
+        lastHighlightedRangeEnd = 0
+        hideNewItemsLoaded(false)
+        groupAdapter.clear()
+        feedBinding.itemsList.scrollToPosition(0)
+        viewModel.selectGroup(id)
+    }
+
     private fun setupListViewMode() {
+        updateFeedItems = true
         // does everything needed to setup the layouts for grid or list modes
         val gridMode = shouldUseGridLayout(context)
         val minimumItemWidth = resources.getDimensionPixelSize(
@@ -338,7 +373,8 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
 
         activity.supportActionBar?.setDisplayShowTitleEnabled(true)
         activity.supportActionBar?.setTitle(R.string.fragment_feed_title)
-        activity.supportActionBar?.subtitle = groupName
+        activity.supportActionBar?.subtitle = null
+        groupSelector?.attach(activity.findViewById<View>(R.id.toolbar_contextual_search_container)?.isVisible == true)
 
         inflater.inflate(R.menu.menu_feed_fragment, menu)
         menu.findItem(R.id.menu_item_feed_channels)?.isVisible =
@@ -463,6 +499,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
     }
 
     override fun onDestroyOptionsMenu() {
+        groupSelector?.detach()
         super.onDestroyOptionsMenu()
         if (
             (groupName != "") &&
@@ -485,6 +522,12 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
     }
 
     override fun onDestroyView() {
+        feedQuickAdd?.dispose()
+        feedQuickAdd = null
+        feedPreview?.dispose()
+        feedPreview = null
+        groupSelector?.dispose()
+        groupSelector = null
         streamSelection?.destroy()
         streamSelection = null
         PreferenceManager.getDefaultSharedPreferences(requireContext())
@@ -497,6 +540,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
         noteBadges?.unwatch(feedBinding.itemsList)
         noteBadges = null
         feedBinding.itemsList.adapter = null
+        latestLoadedState = null
         _feedBinding = null
         super.onDestroyView()
     }
@@ -543,6 +587,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
 
     override fun handleError() {
         val binding = _feedBinding ?: return
+        updateFeedItems = true
         super.handleError()
         binding.itemsList.animateHideRecyclerViewAllowingScrolling()
         binding.refreshRootView.animate(false, 0)
@@ -551,7 +596,9 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
     }
 
     private fun handleProgressState(progressState: FeedState.ProgressState) {
-        showLoading()
+        // Content and refresh progress coexist, including after recreating the view.
+        showRefreshProgress(feedBinding)
+        feedBinding.swipeRefreshLayout.isRefreshing = false
 
         val isIndeterminate = progressState.currentProgress < 0 ||
             progressState.maxProgress < 0
@@ -651,6 +698,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
                     ServiceHelper.isYoutubeMusicMode(requireContext()) &&
                     stream.serviceId == SubscriptionEntity.YOUTUBE_SERVICE_ID
                 ) {
+                    feedPreview?.stop()
                     NavigationHelper.playOnBackgroundPlayer(
                         requireContext(),
                         SinglePlayQueue(stream.toStreamInfoItem()),
@@ -664,7 +712,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
                     stream.serviceId,
                     stream.url,
                     stream.title,
-                    null,
+                    feedPreview?.takeQueue(stream),
                     false
                 )
             }
@@ -700,8 +748,17 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
 
     @SuppressLint("StringFormatMatches")
     private fun handleLoadedState(loadedState: FeedState.LoadedState) {
+        val previousState = latestLoadedState
         latestLoadedState = loadedState
-        showFilteredFeedItems(loadedState, true)
+        if (updateFeedItems || previousState?.items !== loadedState.items) {
+            updateFeedItems = false
+            showFilteredFeedItems(loadedState, true)
+        }
+        if (loadedState.progress != null) {
+            handleProgressState(loadedState.progress)
+        } else {
+            hideRefreshProgress(feedBinding)
+        }
 
         val feedsNotLoaded = loadedState.notLoadedCount > 0
         feedBinding.refreshSubtitleText.isVisible = feedsNotLoaded
@@ -717,9 +774,7 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
             feedBinding.refreshSubtitleText.isFocusable = false
         }
 
-        if (oldestSubscriptionUpdate != loadedState.oldestUpdate ||
-            (oldestSubscriptionUpdate == null && loadedState.oldestUpdate == null)
-        ) {
+        if (loadedState.itemsErrors.isNotEmpty() && previousState?.itemsErrors != loadedState.itemsErrors) {
             // ignore errors if they have already been handled for the current update
             handleItemsErrors(loadedState.itemsErrors)
         }
@@ -876,18 +931,20 @@ class FeedFragment : BaseStateFragment<FeedState>(), ContextualSearchable {
             item.copy(itemVersion = itemVersion).also { displayItem ->
                 displayItem.execBindEnd = item.execBindEnd
                 displayItem.noteBadges = noteBadges
+                displayItem.previewController = feedPreview?.let { WeakReference(it) }
+                displayItem.quickAddController = feedQuickAdd?.let { WeakReference(it) }
                 displayItem.onUploaderSelected = ::openUploaderChannel
             }
         }
 
         // This need to be saved in a variable as the update occurs async
-        val oldOldestSubscriptionUpdate = oldestSubscriptionUpdate
+        val highlightAfter = loadedState.highlightAfter
 
         groupAdapter.updateAsync(displayedItems, false) {
             streamSelection?.refresh()
             if (restoreListState) {
-                oldOldestSubscriptionUpdate?.run {
-                    highlightNewItemsAfter(oldOldestSubscriptionUpdate)
+                highlightAfter?.run {
+                    highlightNewItemsAfter(highlightAfter)
                 }
             }
         }

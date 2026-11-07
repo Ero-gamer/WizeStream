@@ -46,6 +46,7 @@ import com.google.android.material.chip.ChipGroup;
 
 import org.schabi.newpipe.MainActivity;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.profiles.KidsMode;
 import org.schabi.newpipe.database.feed.model.SavedSearchFeedEntity;
 import org.schabi.newpipe.databinding.FragmentSearchBinding;
 import org.schabi.newpipe.error.ErrorInfo;
@@ -225,6 +226,13 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
     private View searchMusicFilters;
     private ChipGroup searchMusicFilterChipGroup;
 
+    private final VoiceSearchController voiceSearch = new VoiceSearchController(this,
+            query -> {
+                wasLoading.set(false);
+                wasSearchFocused = false;
+                search(query, new String[0], new int[0]);
+            });
+
     private boolean suggestionsPanelVisible = false;
 
     /*////////////////////////////////////////////////////////////////////////*/
@@ -339,7 +347,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         final ViewGroup.MarginLayoutParams layoutParams =
                 (ViewGroup.MarginLayoutParams) searchEditText.getLayoutParams();
         layoutParams.rightMargin = DeviceUtils.dpToPx(
-                hasFilters && !showMusicFilterChips ? 96 : 48, requireContext());
+                hasFilters && !showMusicFilterChips ? 144 : 96, requireContext());
         searchEditText.setLayoutParams(layoutParams);
         updateMusicFilterChips(showMusicFilterChips ? musicFilters : Collections.emptyList());
     }
@@ -444,12 +452,19 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
             Log.d(TAG, "onResume() called");
         }
         super.onResume();
+        if (showKidsModeRestriction()) {
+            return;
+        }
         if (activity instanceof MainActivity) {
             ((MainActivity) activity).showMainNavigationForSearch();
         }
 
         if (suggestionDisposable == null || suggestionDisposable.isDisposed()) {
             initSuggestionObserver();
+        }
+
+        if (voiceSearch.submitPendingQuery()) {
+            return;
         }
 
         if (!TextUtils.isEmpty(searchString)) {
@@ -639,6 +654,9 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
     @Override
     public void onCreateOptionsMenu(@NonNull final Menu menu,
                                     @NonNull final MenuInflater inflater) {
+        if (!KidsMode.isSearchAllowed(requireContext(), serviceId)) {
+            return;
+        }
         super.onCreateOptionsMenu(menu, inflater);
 
         menu.add(Menu.NONE, MENU_CLEAR_SEARCH_HISTORY, Menu.NONE,
@@ -823,6 +841,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (DEBUG) {
             Log.d(TAG, "initSearchListeners() called");
         }
+        voiceSearch.bind(searchToolbarContainer);
         searchClear.setOnClickListener(v -> {
             if (DEBUG) {
                 Log.d(TAG, "onClick() called with: v = [" + v + "]");
@@ -942,6 +961,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (DEBUG) {
             Log.d(TAG, "unsetSearchListeners() called");
         }
+        voiceSearch.unbind();
         searchClear.setOnClickListener(null);
         searchClear.setOnLongClickListener(null);
         searchFilter.setOnClickListener(null);
@@ -1113,6 +1133,26 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
                                 throwable, UserAction.GET_SUGGESTIONS, searchString, serviceId)));
     }
 
+    private boolean showKidsModeRestriction() {
+        if (KidsMode.isSearchAllowed(requireContext(), serviceId)) {
+            return false;
+        }
+        if (searchDisposable != null) {
+            searchDisposable.dispose();
+        }
+        if (suggestionDisposable != null) {
+            suggestionDisposable.dispose();
+        }
+        stopDeepSearch();
+        hideKeyboardSearch();
+        hideSuggestionsPanel();
+        searchToolbarContainer.setVisibility(View.GONE);
+        infoListAdapter.clearStreamItemList();
+        showEmptyState();
+        setEmptyStateMessage(R.string.kids_mode_search_disabled);
+        return true;
+    }
+
     @Override
     protected void doInitialLoadLogic() {
         // no-op
@@ -1133,7 +1173,7 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
         if (DEBUG) {
             Log.d(TAG, "search() called with: query = [" + theSearchString + "]");
         }
-        if (theSearchString.isEmpty()) {
+        if (showKidsModeRestriction() || theSearchString.isEmpty()) {
             return;
         }
 
@@ -1198,6 +1238,9 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
 
     @Override
     public void startLoading(final boolean forceLoad) {
+        if (showKidsModeRestriction()) {
+            return;
+        }
         stopDeepSearch();
         collectionLimitReached = false;
         monthlySearchResults = false;

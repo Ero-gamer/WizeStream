@@ -94,6 +94,8 @@ import org.schabi.newpipe.player.event.OnKeyDownListener;
 import org.schabi.newpipe.player.helper.PlayerHolder;
 import org.schabi.newpipe.player.pip.NativePipController;
 import org.schabi.newpipe.player.playqueue.PlayQueue;
+import org.schabi.newpipe.profiles.KidsMode;
+import org.schabi.newpipe.profiles.KidsModeDialogs;
 import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.profiles.ProfileRecord;
 import org.schabi.newpipe.settings.UpdateSettingsFragment;
@@ -177,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
     private SharedPreferences sharedPreferences;
     private SharedPreferences.Editor sharedPrefEditor;
     private String activeProfileId;
+    private boolean activeKidsMode;
     private NativePipController nativePipController;
     private ChangelogPromptController changelogPromptController;
     private GitHubStarPromptController githubStarPromptController;
@@ -235,6 +238,7 @@ public class MainActivity extends AppCompatActivity {
         sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
         sharedPrefEditor = sharedPreferences.edit();
         activeProfileId = ProfileManager.getActiveProfileId(this);
+        activeKidsMode = KidsMode.isEnabled(this);
 
         mainBinding = ActivityMainBinding.inflate(getLayoutInflater());
         drawerLayoutBinding = mainBinding.drawerLayout;
@@ -247,6 +251,7 @@ public class MainActivity extends AppCompatActivity {
         defaultNavigationRailWidth = mainBinding.mainNavigationRail.getLayoutParams().width;
         applyLargeScreenChrome();
         setContentView(mainBinding.getRoot());
+        org.schabi.newpipe.themes.ThemeChrome.apply(mainBinding);
         EdgeToEdgeHelper.applyMainActivitySystemBarInsets(
                 mainBinding.getRoot(),
                 mainBinding.mainSafeContent,
@@ -621,16 +626,22 @@ public class MainActivity extends AppCompatActivity {
                 .setSingleChoiceItems(names, selectedIndex, (dialog, which) -> {
                     dialog.dismiss();
                     final ProfileRecord profile = profiles.get(which);
-                    if (profile.getId().equals(ProfileManager.getActiveProfileId(this))
-                            || !ProfileManager.setActiveProfile(this, profile.getId())) {
-                        return;
-                    }
-                    Toast.makeText(this, getString(R.string.profile_switched,
-                            ProfileManager.getDisplayName(this, profile)), Toast.LENGTH_SHORT)
-                            .show();
-                    activeProfileId = profile.getId();
-                    mainBinding.getRoot().closeDrawer(GravityCompat.START, false);
-                    ActivityCompat.recreate(this);
+                    KidsModeDialogs.requestAccess(this, () -> {
+                        try {
+                            if (profile.getId().equals(ProfileManager.getActiveProfileId(this))
+                                    || !ProfileManager.setActiveProfile(this, profile.getId())) {
+                                return;
+                            }
+                            Toast.makeText(this, getString(R.string.profile_switched,
+                                    ProfileManager.getDisplayName(this, profile)),
+                                    Toast.LENGTH_SHORT).show();
+                            activeProfileId = profile.getId();
+                            mainBinding.getRoot().closeDrawer(GravityCompat.START, false);
+                            ActivityCompat.recreate(this);
+                        } finally {
+                            KidsMode.lock();
+                        }
+                    }, () -> { });
                 })
                 .setNeutralButton(R.string.profile_manage_title, (dialog, which) -> {
                     nativePipController.prepareForInternalActivityNavigation();
@@ -770,7 +781,8 @@ public class MainActivity extends AppCompatActivity {
         LearningReminders.initialize(this);
 
         final String currentProfileId = ProfileManager.getActiveProfileId(this);
-        if (!Objects.equals(activeProfileId, currentProfileId)) {
+        if (!Objects.equals(activeProfileId, currentProfileId)
+                || activeKidsMode != KidsMode.isEnabled(this)) {
             activeProfileId = currentProfileId;
             if (DEBUG) {
                 Log.d(TAG, "Active profile changed, recreating activity...");
@@ -1019,11 +1031,40 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public boolean onPrepareOptionsMenu(final Menu menu) {
+        final boolean result = super.onPrepareOptionsMenu(menu);
+        org.schabi.newpipe.player.recovery.QueueRecoveryUi.prepareMenu(this, menu);
+        MenuItem incognito = menu.findItem(R.id.action_incognito);
+        if (incognito == null) {
+            incognito = menu.add(Menu.NONE, R.id.action_incognito, Menu.NONE,
+                    R.string.incognito_start);
+        }
+        final boolean enabled = org.schabi.newpipe.local.history.IncognitoMode.isEnabled(this);
+        incognito.setTitle(enabled ? R.string.incognito_active : R.string.incognito_start);
+        incognito.setCheckable(true).setChecked(enabled);
+        incognito.setShowAsAction(enabled ? MenuItem.SHOW_AS_ACTION_ALWAYS
+                : MenuItem.SHOW_AS_ACTION_NEVER);
+        return result;
+    }
+
+    @Override
     public boolean onOptionsItemSelected(@NonNull final MenuItem item) {
         if (DEBUG) {
             Log.d(TAG, "onOptionsItemSelected() called with: item = [" + item + "]");
         }
 
+        if (item.getItemId() == R.id.action_recover_queue) {
+            org.schabi.newpipe.player.recovery.QueueRecoveryUi.show(this);
+            return true;
+        }
+        if (item.getItemId() == R.id.action_incognito) {
+            final boolean enabled = !org.schabi.newpipe.local.history.IncognitoMode.isEnabled(this);
+            org.schabi.newpipe.local.history.IncognitoMode.setEnabled(this, enabled);
+            invalidateOptionsMenu();
+            android.widget.Toast.makeText(this, enabled ? R.string.incognito_enabled_message
+                    : R.string.incognito_disabled_message, android.widget.Toast.LENGTH_LONG).show();
+            return true;
+        }
         if (item.getItemId() == android.R.id.home) {
             onHomeButtonPressed();
             return true;

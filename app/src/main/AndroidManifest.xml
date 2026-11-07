@@ -32,6 +32,8 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <!-- TubeBeam: "Send to TV" in the stream long-press menu -->
+        <package android:name="dev.tubebeam" />
     </queries>
 
     <uses-feature
@@ -47,6 +49,8 @@
     <application
         android:name=".App"
         android:allowBackup="true"
+        android:fullBackupContent="@xml/local_recommendation_backup_rules"
+        android:dataExtractionRules="@xml/local_recommendation_extraction_rules"
         android:banner="@mipmap/wizestream_tv_banner"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -67,13 +71,68 @@
             android:launchMode="singleTask"
             android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
+
+        </activity>
+
+        <activity-alias
+            android:name="org.schabi.newpipe.launcher.default"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@mipmap/ic_launcher"
+            android:banner="@mipmap/wizestream_tv_banner">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name="org.schabi.newpipe.launcher.blue"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@drawable/launcher_blue"
+            android:banner="@drawable/launcher_banner_blue">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="org.schabi.newpipe.launcher.green"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@drawable/launcher_green"
+            android:banner="@drawable/launcher_banner_green">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="org.schabi.newpipe.launcher.purple"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:icon="@drawable/launcher_purple"
+            android:banner="@drawable/launcher_banner_purple">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- MediaButtonReceiver must remain undeclared until PlayerService supports cold-start
              playback resumption. Media3 starts the service in the foreground for a hardware play
@@ -497,5 +556,9 @@
             android:resource="@xml/automotive_app_desc" />
         <meta-data android:name="com.google.android.gms.car.notification.SmallIcon"
             android:resource="@mipmap/ic_launcher" />
+        <receiver android:name=".player.widget.PlaybackWidget" android:exported="false" android:label="@string/playback_widget_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/playback_widget_info" />
+        </receiver>
     </application>
 </manifest>

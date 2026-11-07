@@ -13,14 +13,16 @@ object ProfileDeletionManager {
     // Delete only data that has become profile-scoped so later phases can extend cleanup safely.
     @JvmStatic
     fun deleteProfile(context: Context, profileId: String): Completable {
-        if (profileId == ProfileManager.DEFAULT_PROFILE_ID) {
+        if (!ProfileManager.canDeleteProfile(context, profileId)) {
             return Completable.error(
-                IllegalArgumentException("The Default profile cannot be deleted")
+                IllegalArgumentException("Choose another default profile before deleting this profile")
             )
         }
 
         val appContext = context.applicationContext
         return Completable.fromAction {
+            val finishDeletion = checkNotNull(ProfileManager.prepareProfileDeletion(appContext, profileId))
+
             runCatching {
                 val historySyncRecorder = HistorySyncRecorder.get(appContext)
                 historySyncRecorder.recordWatchAllDeleteForProfile(profileId)
@@ -44,7 +46,7 @@ object ProfileDeletionManager {
                 .remove(PlaylistCategories.preferenceKey(profileId))
                 .apply()
             database.streamDAO().deleteOrphans()
-            check(ProfileManager.deleteProfile(appContext, profileId)) {
+            check(finishDeletion()) {
                 "Profile metadata no longer exists"
             }
             LearningReminders.cancelNotification(appContext, profileId)

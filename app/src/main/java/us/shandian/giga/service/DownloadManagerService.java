@@ -86,6 +86,7 @@ public class DownloadManagerService extends Service {
     private static final String ACTION_OPEN_DOWNLOADS_FINISHED = APPLICATION_ID + ".open_downloads_finished";
 
     private DownloadManagerBinder mBinder;
+    private DownloadWindowMonitor downloadWindowMonitor;
     private DownloadManager mManager;
     private Notification mNotification;
     private Handler mHandler;
@@ -180,6 +181,7 @@ public class DownloadManagerService extends Service {
         mConnectivityManager.registerNetworkCallback(new NetworkRequest.Builder().build(), mNetworkStateListenerL);
 
         mPrefs.registerOnSharedPreferenceChangeListener(mPrefChangeListener);
+        downloadWindowMonitor = new DownloadWindowMonitor(this, mManager);
 
         handlePreferenceChange(mPrefs, getString(R.string.downloads_cross_network));
         handlePreferenceChange(mPrefs, getString(R.string.downloads_maximum_retry));
@@ -221,6 +223,7 @@ public class DownloadManagerService extends Service {
 
     @Override
     public void onDestroy() {
+        if (downloadWindowMonitor != null) downloadWindowMonitor.close();
         super.onDestroy();
 
         if (DEBUG) {
@@ -261,9 +264,13 @@ public class DownloadManagerService extends Service {
 
         switch (msg.what) {
             case MESSAGE_FINISHED:
+                org.schabi.newpipe.download.OfflineSponsorBlockStore.save(this,
+                        mission.storage.getUri().toString(), mission.storage.length(),
+                        mission.sponsorBlockSegments);
                 notifyMediaScanner(mission.storage.getUri());
                 notifyFinishedDownload(mission.storage.getName());
-                mManager.setFinished(mission);
+                org.schabi.newpipe.download.offline.OfflineLibrary.completed(this,
+                        mManager.setFinished(mission));
                 handleConnectivityState(false);
                 updateForegroundState(mManager.runMissions());
                 break;
@@ -373,10 +380,20 @@ public class DownloadManagerService extends Service {
                                     String[] psArgs, long nearLength,
                                     ArrayList<MissionRecoveryInfo> recoveryInfo,
                                     Boolean automaticWifiOnly) {
+        startMission(context, urls, storage, kind, threads, streamInfo, psName, psArgs,
+                nearLength, recoveryInfo, automaticWifiOnly, null);
+    }
+
+    public static void startMission(Context context, String[] urls, StoredFileHelper storage,
+                                    char kind, int threads, StreamInfo streamInfo, String psName,
+                                    String[] psArgs, long nearLength,
+                                    ArrayList<MissionRecoveryInfo> recoveryInfo,
+                                    Boolean automaticWifiOnly, String automaticProfile) {
         final Intent intent = new Intent(context, DownloadManagerService.class)
                 .setAction(Intent.ACTION_RUN)
                 .putExtra("automatic_download", automaticWifiOnly != null)
                 .putExtra("automatic_wifi_only", Boolean.TRUE.equals(automaticWifiOnly))
+                .putExtra("automatic_profile", automaticProfile)
                 .putExtra(EXTRA_URLS, urls)
                 .putExtra(EXTRA_KIND, kind)
                 .putExtra(EXTRA_THREADS, threads)
@@ -429,6 +446,10 @@ public class DownloadManagerService extends Service {
         mission.requiresUnmeteredNetwork = intent.getBooleanExtra("automatic_wifi_only", false);
         mission.threadCount = threads;
         mission.source = streamInfo.getUrl();
+        org.schabi.newpipe.download.OfflineSponsorBlockStore.remove(this, storage.getUri().toString());
+        if ((kind == 'v' || kind == 'a') && !Postprocessing.ALGORITHM_SEGMENTS.equals(psName)) {
+            mission.sponsorBlockSegments = streamInfo.getSponsorBlockSegments();
+        }
         if (Postprocessing.ALGORITHM_SEGMENTS.equals(psName)) {
             // Keep partial exports distinguishable from complete offline copies.
             mission.source += (mission.source.contains("#") ? "&" : "#")
@@ -443,6 +464,10 @@ public class DownloadManagerService extends Service {
         handleConnectivityState(true);// first check the actual network status
 
         mManager.startMission(mission);
+        if (intent.getBooleanExtra("automatic_download", false)) {
+            org.schabi.newpipe.download.offline.OfflineLibrary.trackPending(this, mission,
+                    streamInfo, intent.getStringExtra("automatic_profile"));
+        }
     }
 
     public void notifyFinishedDownload(String name) {
@@ -558,6 +583,12 @@ public class DownloadManagerService extends Service {
     ////////////////////////////////////////////////////////////////////////////////////////////////
 
     public class DownloadManagerBinder extends Binder {
+        public void resumeScheduledDownloads() {
+            mHandler.post(() -> {
+                handleConnectivityState(true);
+                downloadWindowMonitor.evaluate();
+            });
+        }
         public DownloadManager getDownloadManager() {
             return mManager;
         }

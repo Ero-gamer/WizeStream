@@ -4,11 +4,158 @@ Release history is listed newest first. The number beside each release is its An
 
 ## Unreleased
 
-## WizeStream 1.31.10 (`1031010`)
+## WizeStream 1.37.0 (`1037000`)
 
 ### Improvements
 
+- Added optional muted video previews to What’s New cards, with seeking, mute controls, and full-player position handoff. Previews start only after a tap, stop off-screen or when leaving the feed, and do not write watch history.
+- Added profile-specific Quick add to playlist in What’s New, with one-tap saving, saved-state checkmarks, duplicate prevention, and Undo. Uses local playlists and is disabled by default.
+- Added a channel-group selector directly in What’s New, preserving the selected group and filters.
+- Show subscription feed results progressively as channels finish refreshing, with stable new-video highlights. Refresh can continue while navigating or playing videos.
+- Added optional automatic fullscreen for landscape videos on tablets while preserving manual overrides and keeping portrait videos unforced.
+- Added an optional perceptual brightness gesture for finer low-light control.
+- Added a playback information panel showing current playback formats, decoder details, buffering, and dropped frames.
+
+### Interface
+
+- Refined feed previews with a translucent Material 3 Preview button and lighter control panels. Preview actions hide with the playback controls, and the thumbnail duration badge is hidden during playback.
+
+## WizeStream 1.36.1 (`1036001`)
+
+### Improvements
+
+- Added local subscription and group-channel search by saved YouTube handles, with or without @ and regardless of letter case. Handles populate when full channel metadata is loaded or refreshed; fast feed updates preserve previously saved handles.
+- Added microphone search on phones and TVs using an installed speech-recognition provider.
+- Added search within feed-group channel lists and optional cleanup after leaving the app.
+
+### Fixes
+
+- Restored video geometry after seamless autoplay and improved miniplayer surface restoration.
+- Restored Invidious descriptions and comment avatars for additional response formats.
+
+
+## WizeStream 1.36.0 (`1036000`)
+
+### Improvements
+
+- Added searchable caption transcripts with language selection, tap-to-seek, copying, and editable timestamped video notes. Captions load on request and stay in memory.
+- Added profile-scoped smart playlists with watched-state, duration, title, subscribed-channel, and Learning-content rules. Results update from locally indexed feeds, playlists, and history.
+- Added opt-in offline-library cleanup for newly tracked automatic channel downloads, with per-channel retention, storage limits, watched-file cleanup, permanent protection, and a manual deletion preview. Manual downloads and imports are excluded.
+- Added explicit recovery of the current and previous playback queues per profile, including the saved position. Queues stay on-device for seven days, require watch history, and are never saved in Incognito.
+- Added LibreTube JSON backup imports with a preview and selectable subscriptions, groups, history, playback positions, and playlists.
+- Added text-file imports of YouTube video URLs into new or existing local playlists, with a preview, duplicate handling, and per-line results.
+- Added Default, Blue, Green, and Purple launcher icons with matching Android TV banners under Appearance settings.
+- Added a charging-only option for scheduled device synchronization; manual sync and incoming requests remain available.
+- Increased explicitly trusted Invidious media servers to 16 per instance.
+
+### Fixes
+
+- Preserved progressing live buffers during recovery and prevented quality feedback from resetting working playback.
+- Improved recovery from AAC decoder output-buffer failures.
+- Restored supported Invidious thumbnail proxy URLs without falling back to direct YouTube requests.
+- Fixed Android 10 video-detail controls with a scoped software-rendering layer.
+- Restored SoundCloud chart playlist pagination.
+- Kept the Android TV mini-player reachable while browsing.
+
+## WizeStream 1.35.0 (`1035000`)
+
+### Improvements
+
+- Expanded theme packs with version 2 glass surfaces, native listening-player styles, and embedded PNG skins, artwork, and icons. Added the Glass Record preset and updated creator documentation. Packs customize supported native templates; arbitrary layouts and effects are not supported.
+- Added read-only YouTube live chat in a video-details tab and fullscreen panel.
+- Added preferred audio quality with a separate override for metered networks.
+- Added comment filters, bounded regular-expression rules, and more reliable channel blocking.
+- Added YouTube channel Releases browsing and optional player seek buttons.
+- Displayed YouTube content-origin disclosures below video descriptions when supplied by YouTube.
+- Added explicitly trusted HTTPS Companion media servers per Invidious instance, with setup documentation and protection against forwarding instance credentials. Direct YouTube requests remain blocked while using Invidious.
+
+### Fixes
+
+- Corrected post-live DVR classification, shortened live/post-live metadata caching, and preserved duration and available quality controls for manifest-backed archives.
+- Increased live buffer headroom after rebuffering to help reduce recurring pauses on unstable connections. Playback may move farther behind live after a stall; results still depend on the connection and stream.
+- Fixed authenticated SOCKS5 proxy connections on Android.
+- Added recovery for AAC decoder output failures.
+- Prevented orphaned settings dialogs after screen rotation.
+- Constrained video surfaces to the current window bounds and preserved explicit link timestamps during playback startup.
+- Fixed Android 10 detail-text rendering and retained undated YouTube feed uploads during feed extraction.
+- Added a validated YouTube client-version fallback and handled missing avatar URLs safely.
+
+## WizeStream 1.34.0 (`1034000`)
+
+### Improvements
+
+- Added optional on-device recommendations with a For you home tab, personalized Shorts and autoplay, and separate learning for each profile. Learning uses new activity after enabling the feature, respects history settings and Incognito, and includes pause, reset, and video/topic exclusions. Recommendation data is not uploaded or included in device sync or Android backups.
+- Added community theme-pack import/export, day/night previews, and restoration of previous appearance settings under Settings → Appearance → Theme packs. Version 1 combines existing light, dark, AMOLED, Eye Comfort, and accent palettes.
+- Added Forest, Ocean, and Midnight theme packs, plus a detailed creator guide, JSON Schema, and example files for sharing compatible packs.
+
+### Fixes
+
+- Fixed permission-related crashes when opening or sharing downloaded files, and handled unavailable file access without crashing.
+- Applied default resolution and metered-network limits to live playback, preserved valid quality choices across manifest updates, and excluded unsupported tracks.
+- Kept SoundCloud HLS streams available as a playback fallback when progressive streams are also listed.
+- Kept Eye Comfort colours in player controls when system-colour accents are selected.
+
+## WizeStream 1.33.0 (`1033000`)
+
+### Improvements
+
+- Added per-profile Kids Mode under Settings → Profiles, with a device-local parent PIN protecting settings and profile changes. Kids Mode disables YouTube search and subscription actions; it does not filter video content.
+- Added Invidious community posts with text, photos, video and playlist attachments, read-only polls, and pagination. Post images use the selected Invidious instance without silently falling back to direct YouTube requests.
+- Added topic chips to related videos using the current video's tags and description hashtags. Topics filter loaded recommendations locally, and All restores the original list without changing autoplay recommendations.
+- Added an Allow AV1 video setting for devices where AV1 playback stutters or shows a black screen, while keeping other 60fps formats available.
+- Added inline thumbnail-row selection in bookmarks and local playlists, kept editing controls visible while scrolling, and preserved subscription scroll position when changing edit mode or sorting.
+- Replaced the feed header refresh control with a compact icon.
+- Improved watch-history synchronization by reusing history snapshots within each sync batch.
+
+### Fixes
+
+- Kept Android TV remote controls inside the player lock and prevented locked remote actions from changing playback or escaping into underlying content.
+- Restored swipe-down while video details are still loading when no scrolling child is available.
+- Corrected video quality labels to reflect the selected format's actual frame rate.
+
+## WizeStream 1.32.1 (`1032001`)
+
+### Improvements
+
+- Added bulk unsubscribe to the Subscriptions menu, with channel selection, search filtering, and a confirmation showing the selected count. Removal affects only the current profile.
+
+### Fixes
+
+- Restored SoundCloud playback for tracks requiring authorization and added support for unprotected 160 kbps AAC streams.
+- Restored D-pad access to the fullscreen button when bottom player controls are enabled on Android TV.
+- Kept Android TV fullscreen focus inside the player so navigation cannot scroll the video off-screen into underlying details or comments.
+- Fixed playback queue artwork appearing as solid-colored rectangles due to inherited icon tint.
+- Allowed swipe-down during media buffering and on loading or error details screens, and prevented hidden player controls from blocking the gesture.
+
+## WizeStream 1.32.0 (`1032000`)
+
+### Improvements
+
+- Added profile merge and replacement with an affected-data preview, duplicate handling, and preservation of the source profile. Another profile can become the default, allowing deletion of the original Default profile.
 - Isolated search history, suggestions, deletions, imports, exports, and device synchronization by profile. Existing search history stays in the Default profile.
+- Added Incognito mode to pause recording searches, watch history, playback progress, and learning activity across profiles and services.
+- Kept video visible in the minimized player and allowed minimizing while video details load.
+- Added preferred audio and caption languages with a Show all languages option.
+- Added Open album for YouTube Music tracks with available album metadata.
+- Kept part of the video visible while browsing chapters using adaptive side and bottom panels.
+- Saved available SponsorBlock segments with newly completed full downloads for offline skipping without modifying the media file.
+- Added SDR video color inversion to playback adjustments, including Remember and Reset.
+- Added an explicit, confirmed switch to direct YouTube playback after Invidious failures.
+- Added optional background feed refresh across profiles, configurable intervals, and an unmetered-network option.
+- Added copying subscription groups to another profile, subscription totals and Edit controls, and multi-item moves in bookmarks and local playlists.
+- Added the yellow accent theme, Basque translation, a Material feed help dialog, and a larger feed header refresh control.
+- Clarified Mark as watched behavior for scheduled videos.
+
+### Fixes
+
+- Show subscriptions from all services in the current profile, including edit mode.
+- Restored missing upload dates for compact YouTube date labels and preserved fetched feed results when another tab or continuation fails.
+- Allowed another DASH refresh after stable Full live playback to improve rewind preservation across separate buffering incidents.
+- Moved synchronization response processing off network event loops to prevent slow history work blocking other categories.
+- Updated channel metadata asynchronously without overwriting subscription settings, saved feed refreshes atomically, and preserved group channel positions.
+- Supported current and legacy PeerTube avatar formats.
+- Improved recovery from released video codecs and surface-detach timeouts, and ignored progress callbacks after player disconnection.
+- Fixed legacy download folder selection, update-download cancellation and install prompts, and the Eye Comfort Appearance summary.
 
 ## WizeStream 1.31.9 (`1031009`)
 

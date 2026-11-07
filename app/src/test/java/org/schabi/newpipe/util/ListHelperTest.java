@@ -21,6 +21,33 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 public class ListHelperTest {
+    @Test
+    public void audioQualityPolicyPreservesDefaultsAndRespectsMeteredOverride() {
+        assertFalse(ListHelper.shouldLimitAudioQuality("auto", "inherit", false, false));
+        assertTrue(ListHelper.shouldLimitAudioQuality("auto", "inherit", true, true));
+        assertFalse(ListHelper.shouldLimitAudioQuality("high", "inherit", true, true));
+        assertTrue(ListHelper.shouldLimitAudioQuality("low", "inherit", false, false));
+        assertTrue(ListHelper.shouldLimitAudioQuality("high", "low", true, false));
+        assertFalse(ListHelper.shouldLimitAudioQuality("high", "low", false, false));
+        assertFalse(ListHelper.shouldLimitAudioQuality("low", "high", true, true));
+        assertTrue(ListHelper.shouldLimitAudioQuality("low", "invalid", true, false));
+        assertTrue(ListHelper.shouldLimitAudioQuality("invalid", "inherit", true, true));
+    }
+
+    @Test
+    public void av1LabelsRespectHigherResolutionPreference() {
+        final var streams = List.of(
+                generateVideoStream("av1-1080", MediaFormat.MPEG_4, "1080p60 AV1", true),
+                generateVideoStream("av1-1440", MediaFormat.MPEG_4, "1440p60 AV1", true),
+                generateVideoStream("av1-2160", MediaFormat.MPEG_4, "2160p AV1 High", true),
+                generateVideoStream("av1-4320", MediaFormat.MPEG_4, "4320p60 AV1", true));
+        assertEquals(List.of(streams.get(0)), ListHelper.getSortedStreamVideosList(
+                MediaFormat.MPEG_4, false, List.of(), streams, false, true));
+        assertEquals(List.of(streams.get(3), streams.get(2), streams.get(1), streams.get(0)),
+                ListHelper.getSortedStreamVideosList(
+                        MediaFormat.MPEG_4, true, List.of(), streams, false, true));
+    }
+
     private static final String BEST_RESOLUTION_KEY = "best_resolution";
     private static final List<AudioStream> AUDIO_STREAMS_TEST_LIST = List.of(
             generateAudioStream("m4a-128-1", MediaFormat.M4A, 128),

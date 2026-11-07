@@ -23,6 +23,7 @@ public class AppearanceSettingsFragment extends BasePreferenceFragment {
     @Override
     public void onCreatePreferences(final Bundle savedInstanceState, final String rootKey) {
         addPreferencesFromResourceRegistry();
+        org.schabi.newpipe.settings.appearance.LauncherIcons.bind(this);
 
         final String themeKey = getString(R.string.theme_key);
         final ListPreference themes = findPreference(themeKey);
@@ -81,6 +82,15 @@ public class AppearanceSettingsFragment extends BasePreferenceFragment {
             applyThemeColorChange(startThemeColorKey, themeColorKey, preference, newValue);
             return false;
         });
+
+        if (org.schabi.newpipe.themes.ThemePacks.active(requireContext()) != null) {
+            for (final String key : new String[] {themeKey, nightThemeKey, themeColorKey}) {
+                final Preference preference = findPreference(key);
+                preference.setEnabled(false);
+                preference.setSummaryProvider(null);
+                preference.setSummary(R.string.theme_pack_managed);
+            }
+        }
 
         final boolean showLargeScreenPreferences = DeviceUtils.isTablet(requireContext())
                 || DeviceUtils.isTv(requireContext());

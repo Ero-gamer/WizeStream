@@ -98,6 +98,7 @@ import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 
 public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutChangeListener {
+    private final TabletAutoFullscreen tabletAutoFullscreen = new TabletAutoFullscreen();
     private static final String TAG = MainPlayerUi.class.getSimpleName();
 
     // see the Javadoc of calculateMaxEndScreenThumbnailHeight for information
@@ -137,14 +138,13 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         binding.touchUnlockButton.setOnClickListener(view -> {
             setTouchLocked(false);
             showControlsThenHide();
+            binding.touchLockButton.requestFocus();
         });
     }
 
     /**
-     * Open fullscreen on tablets where the option to have the main player start automatically in
-     * fullscreen mode is on. Rotating the device to landscape is already done in {@link
-     * VideoDetailFragment#openVideoPlayer(boolean)} when the thumbnail is clicked, and that's
-     * enough for phones, but not for tablets since the mini player can be also shown in landscape.
+     * Preserve TV and tablet startup behavior. Phone startup requests are applied by the detail
+     * fragment after attachment, with orientation determined by the video dimensions.
      */
     private void directlyOpenFullscreenIfNeeded() {
         if (DeviceUtils.isTv(context)
@@ -168,6 +168,9 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
 
         initVideoPlayer();
         directlyOpenFullscreenIfNeeded();
+        // A reused UI must retry attachment after the intent installs the new queue, so an
+        // explicit startup fullscreen request cannot be consumed by the previous video.
+        player.getFragmentListener().ifPresent(PlayerServiceEventListener::onViewCreated);
         // Replaying the current item can reuse the engine and its retained SurfaceView.
         restoreVideoSurfaceAfterLayoutTransition();
         if (shouldRequestPlaybackButtonFocus()) {
@@ -440,12 +443,14 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         if (mode.rendersVideo()) {
             setupVideoSurfaceIfNeeded();
         }
+        player.getFragmentListener().ifPresent(
+                listener -> listener.onPlaybackPresentationModeChanged(mode));
     }
 
     private void updateListenModeUi(@NonNull final PlaybackPresentationMode mode) {
         final boolean listening = mode == PlaybackPresentationMode.LISTEN_VISUALIZER;
         binding.listenModeButton.setActivated(listening);
-        binding.audioVisualizer.setVisibility(listening ? View.VISIBLE : View.GONE);
+        org.schabi.newpipe.themes.ThemePlayerView.updatePresentation(binding, listening);
         if (listening) {
             binding.endScreen.setVisibility(View.GONE);
         }
@@ -782,8 +787,7 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
             binding.brightnessProgressBar.setMax(maxGestureLength);
 
             setInitialGestureValues();
-            binding.itemsListPanel.getLayoutParams().height =
-                    height - binding.itemsListPanel.getTop();
+            ChapterPanelLayout.apply(binding.itemsListPanel, width, height, areSegmentsVisible);
         }
     }
 
@@ -841,6 +845,9 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
 
     private void onQueueClicked() {
         isQueueVisible = true;
+        areSegmentsVisible = false;
+        ChapterPanelLayout.apply(binding.itemsListPanel, binding.playerVideoContent.getWidth(),
+                binding.playerVideoContent.getHeight(), false);
 
         hideSystemUIIfNeeded();
         buildQueue();
@@ -882,6 +889,9 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
 
     private void onSegmentsClicked() {
         areSegmentsVisible = true;
+        isQueueVisible = false;
+        ChapterPanelLayout.apply(binding.itemsListPanel, binding.playerVideoContent.getWidth(),
+                binding.playerVideoContent.getHeight(), true);
 
         hideSystemUIIfNeeded();
         buildSegments();
@@ -1189,6 +1199,21 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         return touchLocked;
     }
 
+    /**
+     * Called before activity shortcuts and focused views can handle a remote key.
+     * @param event the remote key press or release
+     * @return whether the lock consumed this event
+     */
+    public boolean dispatchTouchLockedKeyEvent(final KeyEvent event) {
+        if (!touchLocked) {
+            return false;
+        }
+        binding.touchUnlockButton.requestFocus();
+        // Preserve the dimming layout's first-press wake behavior before reaching Unlock.
+        return binding.getRoot().dispatchKeyEvent(event)
+                || binding.touchLockOverlay.dispatchKeyEvent(event);
+    }
+
     private void setTouchLocked(final boolean locked) {
         touchLocked = locked && isFullscreen;
         binding.touchLockOverlay.setVisibility(touchLocked ? View.VISIBLE : View.GONE);
@@ -1249,11 +1274,13 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         }
         player.getCurrentStreamInfo().ifPresent(info ->
                 getParentActivity().ifPresent(activity -> {
-                    FullscreenCommentsSidebar.show(
-                            activity,
-                            info.getServiceId(),
-                            info.getUrl(),
-                            info.getName());
+                    if (org.schabi.newpipe.player.LiveChatRepository.supports(info)) {
+                        FullscreenCommentsSidebar.showLiveChat(activity, info.getServiceId(),
+                                info.getUrl(), info.getName());
+                    } else {
+                        FullscreenCommentsSidebar.show(activity, info.getServiceId(),
+                                info.getUrl(), info.getName());
+                    }
                     hideControls(0, 0);
                 }));
     }
@@ -1273,6 +1300,7 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
         }
         getParentActivity().ifPresent(FullscreenCommentsSidebar::hide);
         videoOrientationStreamKey = streamKey;
+        tabletAutoFullscreen.onNewVideo();
         videoContentOrientation = FullscreenOrientationPolicy.VideoContentOrientation.UNKNOWN;
         setupScreenRotationButton();
     }
@@ -1413,6 +1441,15 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
     }
 
 
+    public boolean isAutomaticFullscreenAllowed(final Context playerContext) {
+        return tabletAutoFullscreen.isAllowed(playerContext);
+    }
+
+    public void onManualFullscreenChange(final int orientation) {
+        updateVideoContentIdentityFromCurrentItem();
+        tabletAutoFullscreen.onManualChange(orientation);
+    }
+
     public void checkLandscape() {
         updateVideoContentIdentityFromCurrentItem();
         final Context playerContext = getParentContext().orElse(player.getService());
@@ -1421,7 +1458,9 @@ public final class MainPlayerUi extends VideoPlayerUi implements View.OnLayoutCh
                 orientation,
                 isFullscreen,
                 player.isAudioOnly(),
-                DeviceUtils.isTablet(playerContext) || DeviceUtils.isDesktopMode(playerContext)
+                !isAutomaticFullscreenAllowed(playerContext)
+                        || DeviceUtils.isTv(playerContext)
+                        || DeviceUtils.isDesktopMode(playerContext)
                         || getParentActivity().map(DeviceUtils::isInMultiWindow).orElse(false),
                 videoContentOrientation)) {
             setFullscreen(true);

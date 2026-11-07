@@ -15,6 +15,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsPlaylistTracker;
 import org.schabi.newpipe.extractor.stream.VideoStream;
 import org.schabi.newpipe.player.playqueue.PlayQueueItem;
 
+import java.io.EOFException;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.util.Locale;
@@ -124,6 +125,30 @@ final class PlayerHttpErrorRecovery {
         return errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED;
     }
 
+    static boolean isRecoverableAudioDecoderOutputFailure(final int errorCode,
+                                                          final int rendererType,
+                                                          @NonNull final Throwable error) {
+        if (errorCode != PlaybackException.ERROR_CODE_DECODING_FAILED
+                || rendererType != androidx.media3.common.C.TRACK_TYPE_AUDIO) {
+            return false;
+        }
+
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof IllegalStateException) {
+                for (final StackTraceElement frame : current.getStackTrace()) {
+                    if ("android.media.MediaCodec".equals(frame.getClassName())
+                            && ("getOutputBuffer".equals(frame.getMethodName())
+                            || "releaseOutputBuffer".equals(frame.getMethodName()))) {
+                        return true;
+                    }
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     static boolean isRecoverableAv1DecoderInitFailure(
             final int errorCode,
             @Nullable final VideoStream stream) {
@@ -159,7 +184,9 @@ final class PlayerHttpErrorRecovery {
         if (responseCode == null) {
             return false;
         }
-        return responseCode == 403 || responseCode == 404 || responseCode == 410;
+        return responseCode == 301 || responseCode == 302 || responseCode == 303
+                || responseCode == 307 || responseCode == 308
+                || responseCode == 403 || responseCode == 404 || responseCode == 410;
     }
 
     @Nullable
@@ -188,7 +215,7 @@ final class PlayerHttpErrorRecovery {
                         || normalizedHost.endsWith(".googlevideo.com"))) {
                     Throwable cause = httpError.getCause();
                     while (cause != null) {
-                        if (cause instanceof ConnectException) {
+                        if (cause instanceof ConnectException || cause instanceof EOFException) {
                             return true;
                         }
                         cause = cause.getCause();

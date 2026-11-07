@@ -33,6 +33,8 @@ import java.util.ArrayList;
  * </p>
  */
 public final class CustomRenderersFactory extends DefaultRenderersFactory {
+    public final org.schabi.newpipe.player.SubtitleTiming subtitleTiming =
+            new org.schabi.newpipe.player.SubtitleTiming();
     private boolean useCustomVideoRenderer;
     private final VisualizerAudioProcessor visualizerAudioProcessor;
     private final AudioDynamicsProcessor audioDynamicsProcessor;
@@ -76,14 +78,16 @@ public final class CustomRenderersFactory extends DefaultRenderersFactory {
                                        final VideoRendererEventListener eventListener,
                                        final long allowedVideoJoiningTimeMs,
                                        final ArrayList<Renderer> out) {
+        final MediaCodecSelector videoSelector =
+                VideoCodecPolicy.decoderSelector(context, mediaCodecSelector);
         if (!useCustomVideoRenderer) {
-            super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector,
+            super.buildVideoRenderers(context, extensionRendererMode, videoSelector,
                     enableDecoderFallback, eventHandler, eventListener,
                     allowedVideoJoiningTimeMs, out);
             return;
         }
         out.add(new CustomMediaCodecVideoRenderer(context, getCodecAdapterFactory(),
-                mediaCodecSelector, allowedVideoJoiningTimeMs, enableDecoderFallback, eventHandler,
+                videoSelector, allowedVideoJoiningTimeMs, enableDecoderFallback, eventHandler,
                 eventListener, MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY));
     }
 
@@ -106,6 +110,7 @@ public final class CustomRenderersFactory extends DefaultRenderersFactory {
         if (out.size() > rendererCountBefore
                 && out.get(out.size() - 1) instanceof TextRenderer) {
             ((TextRenderer) out.get(out.size() - 1)).experimentalSetLegacyDecodingEnabled(true);
+            out.set(out.size() - 1, subtitleTiming.wrap(out.get(out.size() - 1)));
         }
     }
 

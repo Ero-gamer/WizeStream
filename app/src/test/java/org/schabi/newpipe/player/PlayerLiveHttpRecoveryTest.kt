@@ -1,6 +1,7 @@
 package org.schabi.newpipe.player
 
 import android.os.Looper
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player as Media3Player
 import androidx.media3.datasource.DataSpec
@@ -38,6 +39,68 @@ import org.schabi.newpipe.util.InfoCache
 @Config(manifest = Config.NONE, sdk = [35])
 @LooperMode(LooperMode.Mode.PAUSED)
 class PlayerLiveHttpRecoveryTest {
+    @Test
+    fun repeatedLiveAudioSegment403RefreshesUrlsBeforeBufferDrains() {
+        val fixture = Fixture()
+        fixture.state(Media3Player.STATE_READY)
+        val cache = mock(InfoCache::class.java)
+        mockStatic(InfoCache::class.java).use { cacheClass ->
+            cacheClass.`when`<InfoCache> { InfoCache.getInstance() }.thenReturn(cache)
+            fixture.controller.onLiveMediaSegmentRejected(
+                fixture.engine,
+                C.TRACK_TYPE_AUDIO,
+                6_216_000
+            )
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
+            fixture.controller.onLiveMediaSegmentRejected(
+                fixture.engine,
+                C.TRACK_TYPE_AUDIO,
+                6_216_000
+            )
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+            verify(fixture.player, never()).reloadPlayQueueManager()
+            fixture.controller.onLiveMediaSegmentRejected(
+                fixture.engine,
+                C.TRACK_TYPE_AUDIO,
+                6_216_000
+            )
+            shadowOf(Looper.getMainLooper()).idle()
+
+            verify(cache).removeInfo(fixture.item.serviceId, fixture.item.url, InfoCache.Type.STREAM)
+            verify(fixture.player).setRecovery()
+            verify(fixture.player).reloadPlayQueueManager()
+            verify(fixture.resolver, never()).preferHlsForLiveStream(anyString())
+            verify(fixture.queue, never()).unsetRecovery(0)
+        }
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun earlySegmentRecoveryIgnoresPausedAndReplacedPlayback() {
+        val fixture = Fixture()
+        fixture.state(Media3Player.STATE_READY)
+        `when`(fixture.player.playWhenReady).thenReturn(false)
+        repeat(3) {
+            fixture.controller.onLiveMediaSegmentRejected(
+                fixture.engine,
+                C.TRACK_TYPE_VIDEO,
+                6_216_000
+            )
+        }
+        `when`(fixture.player.playWhenReady).thenReturn(true)
+        val oldEngine = mock(ExoPlayer::class.java)
+        repeat(3) {
+            fixture.controller.onLiveMediaSegmentRejected(
+                oldEngine,
+                C.TRACK_TYPE_VIDEO,
+                6_216_000
+            )
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        fixture.controller.resetRecovery()
+    }
+
     @Test
     fun exhaustedRefreshRetriesSwitchToHlsAtLivePosition() {
         val fixture = Fixture()
@@ -376,6 +439,106 @@ class PlayerLiveHttpRecoveryTest {
         fixture.controller.resetRecovery()
     }
 
+    @Test
+    fun fullLiveCanRefreshAgainAfterStablePlaybackWithoutLosingRewind() {
+        val fixture = Fixture()
+        `when`(fixture.player.isNormalLive()).thenReturn(false)
+        fixture.state(Media3Player.STATE_READY)
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        fixture.state(Media3Player.STATE_READY)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        verify(fixture.player, times(2)).reloadPlayQueueManager()
+        verify(fixture.player, times(2)).setRecovery()
+        verify(fixture.resolver, never()).preferHlsForLiveStream(anyString())
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun briefReadyFlickerStillFallsBackInsteadOfLoopingDashRefreshes() {
+        val fixture = Fixture()
+        `when`(fixture.player.isNormalLive()).thenReturn(false)
+        fixture.state(Media3Player.STATE_READY)
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        fixture.state(Media3Player.STATE_READY)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        verify(fixture.resolver).preferHlsForLiveStream(fixture.info.url)
+        verify(fixture.player, times(2)).reloadPlayQueueManager()
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun progressingBufferDoesNotReloadOrDiscardRewindUntilProgressStops() {
+        val fixture = Fixture()
+        `when`(fixture.player.isNormalLive()).thenReturn(false)
+        fixture.state(Media3Player.STATE_READY)
+        fixture.state(Media3Player.STATE_BUFFERING)
+        for (step in 1..4) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+            `when`(fixture.engine.bufferedPosition).thenReturn(step * 1_000L)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        }
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        verify(fixture.resolver, never()).preferHlsForLiveStream(anyString())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(9))
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        verify(fixture.player).reloadPlayQueueManager()
+        verify(fixture.player).setRecovery()
+        verify(fixture.queue, never()).unsetRecovery(0)
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun initialFullLiveStallRefreshesDashAfterThirtySeconds() {
+        val fixture = Fixture()
+        `when`(fixture.player.isNormalLive()).thenReturn(false)
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(29))
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        verify(fixture.player).reloadPlayQueueManager()
+        verify(fixture.player).setRecovery()
+        verify(fixture.resolver, never()).preferHlsForLiveStream(anyString())
+        verify(fixture.queue, never()).unsetRecovery(0)
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun initialBufferProgressExtendsStartupGracePeriod() {
+        val fixture = Fixture()
+        fixture.state(Media3Player.STATE_BUFFERING)
+        repeat(4) { step ->
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(19))
+            `when`(fixture.engine.bufferedPosition).thenReturn((step + 1) * 1_000L)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        }
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        fixture.controller.resetRecovery()
+    }
+
+    @Test
+    fun initialStallWaitsForMatchingMetadataAndStopsWhenPaused() {
+        val fixture = Fixture()
+        `when`(fixture.item.url).thenReturn("https://www.youtube.com/watch?v=anotherLive")
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(40))
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        `when`(fixture.item.url).thenReturn(fixture.info.url)
+        fixture.state(Media3Player.STATE_BUFFERING)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(20))
+        `when`(fixture.player.playWhenReady).thenReturn(false)
+        fixture.controller.onPlayWhenReadyChanged(false)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(40))
+        verify(fixture.player, never()).reloadPlayQueueManager()
+        fixture.controller.resetRecovery()
+    }
+
     private class Fixture {
         val player = mock(Player::class.java)
         val engine = mock(ExoPlayer::class.java)
@@ -401,6 +564,7 @@ class PlayerLiveHttpRecoveryTest {
 
         init {
             `when`(player.exoPlayer).thenReturn(engine)
+            `when`(player.getExoPlayer()).thenReturn(engine)
             `when`(player.playWhenReady).thenReturn(true)
             `when`(player.isNormalLive()).thenReturn(true)
             `when`(player.playQueue).thenReturn(queue)

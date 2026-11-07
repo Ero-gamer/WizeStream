@@ -136,6 +136,11 @@ public class YoutubeChannelExtractor extends ChannelExtractor {
     }
 
 
+    @Override
+    public String getHandle() {
+        return org.schabi.newpipe.extractor.channel.ChannelHandle.fromYoutube(jsonResponse);
+    }
+
     @Nonnull
     @Override
     public String getUrl() throws ParsingException {
@@ -648,6 +653,9 @@ public class YoutubeChannelExtractor extends ChannelExtractor {
                         case "videos":
                             addTab.accept(ChannelTabs.VIDEOS);
                             foundVideoTab = tabRenderer;
+                            break;
+                        case "releases":
+                            addTab.accept(ChannelTabs.ALBUMS);
                             break;
                         case "playlists":
                             addTab.accept(ChannelTabs.PLAYLISTS);

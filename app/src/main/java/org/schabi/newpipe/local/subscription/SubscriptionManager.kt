@@ -109,6 +109,7 @@ class SubscriptionManager @JvmOverloads constructor(
                     requireNotNull(entity.url)
                 )
                     ?.let { existing ->
+                        entity.handle = entity.handle ?: existing.handle
                         entity.notificationMode = existing.notificationMode
                         entity.notificationKeywords = existing.notificationKeywords
                         entity.youtubeModeMask = existing.youtubeModeMask or
@@ -172,7 +173,8 @@ class SubscriptionManager @JvmOverloads constructor(
             info.name,
             ImageStrategy.imageListToDbUrl(info.avatars),
             info.description,
-            info.subscriberCount
+            info.subscriberCount,
+            info.handle
         )
     }
 
@@ -219,6 +221,7 @@ class SubscriptionManager @JvmOverloads constructor(
                 ?: return
 
         subscriptionEntity.name = info.name
+        info.handle?.let { subscriptionEntity.handle = it }
 
         // some services do not provide an avatar URL
         info.avatarUrl?.let { subscriptionEntity.avatarUrl = it }
@@ -262,6 +265,22 @@ class SubscriptionManager @JvmOverloads constructor(
                 recordSubscriptionDelete(serviceId, url)
             }
             deleted
+        }
+            .subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+    }
+
+    /** Removes selected library entries, including all YouTube modes, in this profile only. */
+    fun deleteSubscriptions(subscriptionIds: Collection<Long>): Completable {
+        val selectedIds = subscriptionIds.toSet()
+        return Completable.fromAction {
+            val deleted = database.runInTransaction<List<SubscriptionEntity>> {
+                selectedIds.mapNotNull { subscriptionTable.getSubscriptionForProfile(profileId, it) }
+                    .also { entities -> entities.forEach(subscriptionTable::delete) }
+            }
+            deleted.forEach { entity ->
+                entity.url?.let { recordSubscriptionDelete(entity.serviceId, it) }
+            }
         }
             .subscribeOn(Schedulers.io())
             .observeOn(AndroidSchedulers.mainThread())

@@ -34,7 +34,7 @@
   <a href="#development-status">Development</a> •
   <a href="#contributing">Contributing</a> •
   <a href="#upstream-newpipe">Upstream</a> •
-  <a href="#donate">Donate</a> •
+  <a href="#star-history">Star History</a> •
   <a href="#license">License</a>
 </p>
 
@@ -58,11 +58,13 @@ WizeStream preserves the NewPipe libre software license, upstream credits, and t
 
 ### Rebranding from NewPipe Material
 
-This project was previously distributed as **NewPipe Material**. In July 2026, NewPipe e.V. asked the project to adopt a unique name that does not use the registered NewPipe word mark, in accordance with its trademark policy. The project was therefore renamed to **WizeStream**.
+WizeStream was previously called **NewPipe Material**. The new name distinguishes this
+independently maintained app from official NewPipe. See [issue #34](https://github.com/wizdom13/WizeStream/issues/34)
+for the original rebranding request.
 
-The rebranding changes the public app name, visual identity, repository name, and distribution metadata. It does **not** change the app's technical identity or update path: existing installations continue to use the same application ID, and can receive normal updates signed with the same release key. User data and settings are not reset by the name change.
-
-WizeStream remains based on NewPipe and continues to preserve upstream attribution, licensing, and third-party notices. The rename is intended to clearly distinguish this independently maintained project from official NewPipe while respecting the upstream project's trademark policy. See [issue #34](https://github.com/wizdom13/WizeStream/issues/34) for the original request.
+Existing NewPipe Material users can update normally with a release signed by the same key:
+the application ID remains unchanged, and the rename does not reset local data or settings.
+Upstream attribution, licensing, and third-party notices are preserved.
 
 ### Independent versioning
 
@@ -102,10 +104,14 @@ Project highlights:
 - Optional Learning Mode with timestamped notes, playlist progress, study statistics, and a dashboard
 - Secure peer-to-peer synchronization between trusted WizeStream devices, manually or automatically
   over Wi-Fi or Ethernet
+- Searchable transcripts, timestamped notes, smart playlists, and explicit playback-queue recovery
+- Automatic channel downloads with opt-in offline retention and permanent file protection
 - Local search across subscriptions, playlists, feeds, history, and Downloads
 - Import/export compatibility with supported NewPipe backup data and a verified in-app update flow
 
-Sensitive areas such as playback, downloads, background playback, popup playback, and extractor logic are changed only through focused and tested work.
+This README describes the current `pipe` branch; recently merged features may arrive in the next
+release. See the [release history](docs/changelogs.md) and [published releases](https://github.com/wizdom13/WizeStream/releases)
+for version-specific availability.
 
 ---
 
@@ -150,6 +156,7 @@ WizeStream supports these services through extractor source integrated directly 
 - Niconico
 - BitChute
 - Rumble
+- Odysee (experimental)
 
 YouTube playback and downloads use conventional progressive, DASH, and HLS stream URLs exposed by
 the bundled extractor source.
@@ -170,12 +177,40 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
 
 ## Features
 
+### Profiles and local privacy
+
+- Create separate local profiles and switch quickly from the navigation drawer
+- Keep subscriptions, playlists, feed groups, watch history, playback positions, and search history
+  separated by profile, including search suggestions and optional search-history synchronization
+- Merge or replace profile data with a preview and duplicate handling while preserving the source profile
+- Choose a different default profile and delete profiles with confirmation
+- Subscribe a channel to another profile or copy a subscription group without switching profiles
+- Enable per-profile **Kids Mode** with a device-local parent PIN protecting settings and profile
+  changes; it disables YouTube search and subscription actions but does not filter video content
+- Enable Incognito to pause recording searches, watch history, playback progress, and learning activity
+  across profiles and services; it does not make network requests anonymous
+- Optional **Clear on exit** in History and cache clears in-memory metadata after at least 30 seconds
+  in the background with the player closed. Separate opt-ins clear reCAPTCHA cookies or the current
+  profile’s playback positions and queue recovery; progress deletions follow device-sync settings.
+  Feed data, watch/search history, playlists, subscriptions and downloads are retained. Android may
+  delay cleanup; force-stopping the app prevents background work until it is opened again.
+
 ### Streaming and discovery
 
 - Watch videos, live streams, and audio without signing in to a platform account
 - Browse all [supported services](#supported-services), with dedicated YouTube Music and YouTube
   Shorts destinations
+- Optionally learn recommendations on-device for each profile, with a **For you** home tab,
+  personalized Shorts and autoplay, pause/reset controls, and video/topic exclusions. Learning
+  starts after opt-in, respects history switches, and is disabled in Incognito; the model is not synced
 - Search with service-provided content, date, duration, feature, and sorting filters
+- Use the microphone button in search on phones and TVs with a compatible speech-recognition app.
+  Recognized speech searches the current service. WizeStream requests offline recognition, but the
+  installed provider controls availability and may use its servers; offline operation is not guaranteed.
+  No Google sign-in, bundled speech SDK, or microphone permission in WizeStream is required.
+- Save search-filter presets by profile and service, including YouTube Music mode
+- Use custom or relative YouTube upload-date ranges, duration limits, shortest/longest ordering,
+  and cancellable deeper or monthly search collection with duplicate removal
 - Save searches as reusable feeds with filters, cached results, pagination, and manual refresh
 - Search within channel tabs and remote or local playlists without leaving the current screen
 - Filter channel, feed, and playlist lists by unwatched, partially watched, live, or Shorts content
@@ -184,17 +219,35 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
 - Optionally sync AiSList directly from its upstream project: high-confidence channels are hidden,
   while medium-confidence warnlist channels can be ignored, labeled, warned before playback, or
   hidden; matching stays on-device without sending the viewed video or channel to a detection service
+- Allow selected channels through keyword, channel, and AiSList hiding rules; explicitly blocked
+  videos remain hidden
 - Browse video details, related content, comments, playlists, and channel tabs where supported
+- Open a YouTube Music track's album when album metadata is available
+- Block YouTube channels by stable ID when a canonical channel URL is available, preserving ID
+  case through backups and sync. Existing URL and name-only rules remain supported; known different
+  channel URLs no longer match solely because their display names are identical. Handle-only URLs
+  are not automatically resolved, and name fallback remains for items without uploader URLs.
+- Add optional RE2 regular-expression filters under **Blocked content > Advanced regex filters**;
+  one expression per line, without slash delimiters, matched case-insensitively. Plain-text rules
+  keep their existing meaning. Regex rules support enabled content targets, including comments,
+  and optional uploader matching, but not lookaround or backreferences. Up to 32 expressions of
+  512 characters each are accepted; invalid imported regex lists are ignored. Regex rules are
+  included in settings backups and remain local during device sync.
+- Filter comments and replies by text, exact author display names, or a minimum like count under
+  **Settings > Content > Blocked content**. Comment-only rules start empty, respect the Comments
+  target and blocking switch, and preserve comments with unknown like counts. They are app-wide,
+  included in settings backups, and remain local during device sync.
 - Choose **Top** or **Newest** YouTube comments using the service's ordering, including pagination
 - Translate comments on demand with Android's on-device translation service when the required
   language pair is already available locally, with no cloud translation fallback
-- Sort channel videos by latest, popular, or oldest, and use podcast tabs on supported channels
+- Sort channel videos by latest, popular, or oldest, and use podcast and album/release tabs on supported channels
 - Browse read-only YouTube channel posts with text, images, polls, links, videos, playlists, and
   pagination
 - See channel avatars directly in stream lists, open channels from their identity areas, and view
   view or subscriber counts where the service provides them
 - Copy stream titles, share streams and playlists, open supported links directly in WizeStream, and
   open a channel's RSS feed where available
+- Read YouTube content-origin disclosures below descriptions when supplied by the service
 - View YouTube dislike counts where available
 - Optionally replace YouTube titles and thumbnails with accepted community contributions from DeArrow
 - Identify membership-restricted videos with a **Members only** badge, receive a clear explanation
@@ -204,6 +257,25 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
   preferred PeerTube instance
 
 ### Playback
+
+- Optional **Quick add to playlist in What’s New** under **Settings > Content** selects a local
+  playlist separately for each profile. Tap the thumbnail’s top-right button to save a video;
+  a checkmark identifies videos already saved. Duplicate adds are prevented and a snackbar
+  offers Undo. Uses only the local database; disabled by default and hidden in the mini layout.
+
+- Optional **Video previews in What’s New** under **Settings > Content** adds a manual Preview
+  button to the **card layout** for regular videos. Previews start muted, offer seek and mute
+  controls, and stop off-screen or when leaving the feed. Only one preview runs, and other
+  players must be closed first. Opening the video continues from its preview position.
+  Disabled by default; previews request media only after tapping and do not write watch history.
+
+- Optional **Perceptual brightness gesture** under **Settings > Video and audio** gives finer
+  low-light control using a nonlinear curve. Off by default; affects only the player window.
+  Device calibration and adaptive brightness can differ from the system slider.
+- **Playback information** in the expanded player controls shows playing resolution, codecs,
+  reported frame rate and bitrates, decoder names, buffered seconds and dropped frames.
+  The dismissible panel updates once per second while visible, entirely on-device. Unknown
+  values appear as unavailable; reported stream bitrate is not measured network speed.
 
 - Main, Listen, background, popup, external-player, and Kodi playback
 - Switch a video to audio-only Listen mode without losing the queue or playback position, and choose
@@ -217,68 +289,145 @@ shared upstream, but WizeStream remains responsible for defects caused by its bu
   **Continue listening** section; video and visualizers are never shown on the driving surface
 - Cast compatible streams to discovered FCast and Chromecast-compatible receivers on Android 8 and
   newer, with play, pause, stop, and receiver-switching controls
+- Optional session-only **A–B repeat** in expanded video controls repeats a selected non-live range. Set A, then B at least half a second later; leaving the range or changing tracks clears it.
 - Playback queues, repeat and shuffle controls, chapters, captions, and seek-bar thumbnail previews
+- Browse chapters in adaptive side or bottom panels while keeping part of the video visible
+- Read fullscreen comments and replies beside the video, and enable danmaku bullet comments where supported
+- Read YouTube livestream chat in a dedicated **Live chat** tab or the fullscreen comments side panel.
+  Switch between the chat list and danmaku; chat is read-only, retains the latest 200 messages,
+  and disconnects when no chat surface is visible or the app is backgrounded. Chat replay and
+  sending messages are not supported by this panel.
+- Choose Normal or Full live playback; Full live offers rewind through the history supplied by the stream
 - Control autoplay and automatic queue continuation, enqueue items next or last, reorder the play
   queue, and automatically prefer Shorts recommendations while watching Shorts
+- Recover the current or previous queue through **Recover playback queue** in the app menu,
+  with confirmation before replacing playback. **Settings > Video and audio > Save queues for recovery**
+  keeps up to 1,000 loaded items per queue for seven days, separately for each profile. Watch history
+  is required; Incognito queues are excluded, and disabling recovery clears saved queues
 - Select available video resolutions and formats, including higher adaptive qualities when exposed by
   the service
 - Select multi-audio tracks with original, dubbed, descriptive, and secondary labels, with preferences
   for original or descriptive audio
 - Set separate default video and popup resolutions, preferred video and audio formats, and a mobile
   data resolution limit
+- Choose automatic, higher-quality, or data-saving audio, with a separate override for metered
+  networks, under **Settings > Video and audio**. Automatic preserves the video data-limit behavior;
+  quality selection respects the preferred audio format and available streams and takes effect when
+  streams are selected for playback. These device-wide preferences are included in settings backups and remain local during device sync.
+  They choose among separate audio streams; they do not cap muxed video audio or live manifests.
+- Adjust **Subtitle timing** from the caption menu in 100 ms steps, up to 30 seconds earlier or later, with Reset; timing is session-only and clears on track changes.
+- Set preferred audio and caption languages, with a Show all languages option
 - Save playback speed, quality, and caption choices in per-channel playback profiles
+- Configure per-channel intro and outro skip durations
+- Adjust SDR video brightness, contrast, saturation, and color inversion, with Remember and Reset controls
+- Set independent player volume and optionally dim fullscreen playback after inactivity while audio continues
 - Retain playback speed for live streams
 - Use swipe seeking, fullscreen volume and brightness swipes, hold-to-speed-up, configurable
   pinch-to-zoom and two-finger panning, an optional two-finger playback-speed gesture, and swipe down
-  to the miniplayer
+  to the miniplayer, including loading and error screens
 - Lock fullscreen touch controls from the player's expanded controls; use **Unlock** or leave
   fullscreen to restore touch interaction
 - Optionally keep visible video playback in Android's native picture-in-picture window on Android 8
   and newer
+- Keep video visible in the minimized player, with optional rounded corners; on Android TV,
+  return to its controls with the remote while browsing
 - Optionally keep the video visible while scrolling its details page
 - Configure the preferred action when opening a stream, start or rotate directly into fullscreen even
   when Android orientation is locked, choose the exit/minimize behavior, and remember popup size and
   position
+- Optionally replace the video player’s previous/next buttons with rewind/fast-forward using your
+  configured seek duration under **Settings > Video and audio**.
 - Set a sleep timer using presets, a custom duration, the end of the current video, or the end of the
   queue, with optional fade-out
 - Skip or mark SponsorBlock categories with per-category behavior, colors, notifications, seek-bar
   segments, and a manual skip button
+- Save available SponsorBlock segments with newly completed full downloads for offline skipping
+  in WizeStream without modifying the media file
+
+### Smart playlists
+
+- Open **Smart playlists** from the Bookmarks menu, then create a named set of rules
+- Combine watched state, maximum duration, title keywords, selected subscribed channels, and Learning content
+- Results update from the active profile's locally indexed feeds, playlists, and history; refresh feeds to discover new uploads
+- Play all matches or start at a selected item; long-press a smart playlist to edit or delete its rules
+- Keep up to 50 rule sets per profile, included in complete settings backups; each preview shows up to 1,000 newest matches
 
 ### Library, subscriptions, and downloads
 
 - Subscribe to channels without a platform account and organize subscriptions into channel groups
-- Keep independent **Subscriptions** and **What's New** scopes and refresh state for each service,
-  including separate YouTube and YouTube Music scopes
+- Switch between All channels and your profile’s channel groups directly in What’s New using
+  a compact toolbar selector beneath What’s New; group switching uses cached feeds without starting network requests
+- View subscriptions from all services in the current profile; choose current-platform or all-platform
+  views for **What's New** and channel groups, with separate YouTube and YouTube Music membership
+- Arrange subscriptions with drag-and-drop ordering, named separators, multiselection, and bulk moves
+- Unsubscribe from multiple selected channels with a count confirmation, limited to the current profile
+- Refresh feeds manually or in the background, with configurable intervals, optional unmetered networking,
+  and refresh across profiles; use **Refresh all now** to bypass the usual refresh threshold
 - Receive configurable new-stream notifications for selected subscriptions, with checking-frequency,
   network, and per-channel title-keyword controls
 - Create, rename, search, play, shuffle, share, and bulk-manage local playlists; remove watched or
   duplicate entries, bookmark remote playlists, and sort remote playlist contents
-- Swipe a video out of a local playlist with an **Undo** action
+- Organize Bookmarks and local playlists with named separators, Edit/Done controls, and multi-item moves
+- Optionally swipe a video out of a local playlist in Edit mode with an **Undo** action
 - Organize local and bookmarked online playlists into **Categories**, with rename, move, and delete
   actions; categories are local to the device and included in complete WizeStream backups
 - Long-press a video in search, channel lists, or feeds and choose **Select** to enqueue, add to a
   playlist, or download several items; **Select all loaded videos** affects the currently loaded list
 - Browse and play local audio and video files with search, filters, sorting, thumbnails, detailed
-  metadata, refresh/rescan controls, and main, background, or popup playback
+  metadata, folder grouping, exclusions, refresh/rescan controls, and main, background, or popup playback
+- Search channel names and saved YouTube handles (with or without @, case-insensitively) in
+  Subscriptions and group-channel lists. Handles populate during full channel loads/refreshes;
+  fast feeds keep existing handles, and typing never triggers network requests.
+- Search within a feed group from its channel-list toolbar, with instant local filtering
+  and support for the existing list/grid layout.
 - Search locally within subscriptions, playlists, feeds, watch history, and Downloads, then carry a
   query into the selected service's online search
+- Browse subscription feed results as channels finish refreshing, with stable new-video highlights;
+  refresh continues while navigating or playing videos
+- Optional automatic fullscreen for landscape videos on tablets, with manual overrides and
+  split-screen/desktop exclusions (off by default under Video and audio settings)
 - Store watch history, search history, and playback progress locally under user-controlled settings
 - Browse watch history by date with fast scrolling and a calendar date picker
 - Download video, audio, and captions where supported, with resumable downloads and queue controls
+- Choose companion captions in the video download dialog to queue video and one caption language together in the configured video download folder (or choose a folder when none is configured). Captions are separate resumable sidecar files; this option does not apply to segment downloads.
+- Enable automatic audio or video downloads from subscribed channels, with hourly checks, optional
+  unmetered-only networking, saved download folders, and limits of three new uploads per channel
+  and 20 total per check; existing uploads are skipped
+- Optionally hand downloads to an external downloader
 - Bulk-download complete local or remote playlists and the current play queue as video or audio,
   optionally prefixing filenames with track numbers
 - Download MP3 audio with selectable quality, and embed title, uploader, genre, upload date, and source
   URL metadata in generated MP3, M4A, MP4, and Opus files
+- Optional **Scheduled download window** in Downloads settings gates internal transfers to a daily local-time window, including overnight ranges, with unmetered-network and charging requirements. Running transfers pause at the boundary (checked about every 30 seconds); post-processing can finish. WorkManager checks queued work approximately every 15 minutes, subject to Android delays. Explicitly paused downloads stay paused, and external downloaders are unaffected.
 - Choose Storage Access Framework or compatible legacy storage locations, separate audio and video
   folders, mobile-network behavior, retry limits, filename handling, and a serial download queue
 - Import or export subscriptions separately, create complete WizeStream backups that preserve all
   local profiles, and merge compatible watch history, playback positions, local playlists, settings,
   and SponsorBlock data from NewPipe-style backups without replacing existing data
 - NewPipe/PipePipe migrations, Google Takeout imports, and NewPipe-compatible exports target the
-  profile that is active when the operation starts; search history and app-wide settings remain global
+  profile that is active when the operation starts, including imported search history; app-wide settings
+  remain shared
+- Import [LibreTube JSON backups](doc/imports/libretube.md) with a preview and category selection
+  for subscriptions, groups, history, playback positions, local playlists, and remote bookmarks;
+  imports merge into the selected profile without transferring credentials or settings
+- Import [text lists of YouTube video URLs](doc/imports/text-playlists.md) from the Bookmarks menu
+  into new or existing local playlists, with preview, optional duplicate skipping, and per-line results
 - Schedule daily or weekly backups in **Settings > Backup and restore** after choosing a folder;
   retain the latest seven automatic backups and see the last backup status. Android determines the
   exact run time based on battery and storage conditions
+
+### Transcripts
+
+- Open **Transcript** in a video's Description panel to read available TTML, WebVTT, or SRT captions
+- Choose a caption language, search text, tap a line to seek, and copy matching passages
+- Long-press a passage to save it as an editable timestamped video note; captions are loaded only on request and are not stored on disk
+
+### Video notes
+
+- Add and edit timestamped notes during playback, including from saved-playlist menus, without enabling Learning Mode
+- Jump to a note's timestamp, copy its text, or copy all notes for a video
+- Browse, search, edit, and export playlist notes as plain text or CSV
+- See saved-note indicators on video thumbnails; notes for the same video are shared across playlists
 
 ### Learning Mode
 
@@ -297,6 +446,9 @@ When enabled, Learning Mode adds:
   videos, and continue learning shortcuts
 - Study-time statistics, current and longest streaks, and a 28-day activity calendar
 - A setting to include or exclude background listening from study statistics
+- A Learning home tab, course navigation, a Last lesson watched shortcut, and daily reminders
+- Optional per-profile lesson difficulty ratings, searchable review, hardest-first ordering, and
+  Hard-only shortcuts, with backup and optional synchronization between matching profiles
 
 Content can be removed from Learning later. A video remains designated while it is still included by
 another marked source, such as a marked playlist. Existing videos with timestamped learning notes are
@@ -307,37 +459,64 @@ data migration, and synchronization details.
 
 ### Interface and customization
 
+- Add the **WizeStream playback** home-screen widget for previous, play/pause, and next controls. With no active player it opens the app; it does not store or show listening titles and uses no background polling.
+
 - Material 3-inspired app surfaces, dialogs, settings, tabs, and navigation
 - Dynamic Material You colors where available, plus Light, Dark, Black, Follow system, and manual
-  theme color options
+  theme color options, including Cyan and Yellow, plus an Eye Comfort warm dark theme
+- Choose Default, Blue, Green, or Purple [launcher icons and matching TV banners](doc/launcher-icons.md)
+  under **Settings > Appearance > App icon**; launcher refresh timing and themed-icon overrides vary
 - A customizable home screen and configurable default main tab
 - Bottom navigation for up to five main sections and a scrollable tab layout for larger tab sets
 - Bottom-navigation labels that can be always visible, active only, or hidden
 - Optional service sections in the navigation drawer and configurable global search behavior
 - List and grid display modes, responsive or fixed tablet grid columns, optional full grid titles,
-  adjustable comment text, and Android caption-style integration
+  separate portrait/landscape layouts and grid columns, adjustable title/channel/metadata/comment
+  sizes and bold text, and Android caption-style integration
 - Configurable player-notification actions, artwork, colorization, and lock-screen thumbnails
-- Searchable settings and resettable preferences
+- Searchable settings and resettable preferences, with adaptive two-pane Settings and Learning layouts
+- Standard or Wavy player seek bars and Line or Wavy feed refresh indicators
 - Phone, tablet, landscape, and Android TV layouts, with configurable left-rail or bottom navigation on
   tablets
+- Optional bottom player controls, configurable remote/D-pad shortcuts, direct TV seeking,
+  and a fullscreen recommendations grid
+
+### Offline library management
+
+- Open **Offline library management** from the Downloads menu to opt into cleanup for newly tracked automatic channel downloads
+- Keep the newest items per channel, limit managed storage, or remove fully watched downloads using this profile's watch history
+- Protect individual tracked files with **Keep permanently**, and preview exact cleanup candidates before a manual cleanup
+- Automatic cleanup runs during automatic download checks for the active profile; it pauses while the player service is open or Incognito is active
+- Manual downloads, imported files, files with changed sizes, and files protected by the user are excluded; failed deletions retain their download records
+- Cleanup permissions and file ownership stay on this device and are excluded from backups and sync
 
 ### Privacy and network
 
 - Use WizeStream without a platform account or Google Play Services
+- Optionally access YouTube through an Invidious instance, with saved instances and a quick selector;
+  availability depends on the chosen instance
+- Configure up to 16 explicitly trusted HTTPS [Invidious Companion media servers](doc/invidious-media-servers.md)
+  per instance; direct YouTube requests remain blocked in Invidious mode
+- Browse supported YouTube community posts through Invidious, including attachments, read-only polls,
+  and pagination, with images routed through the instance
+- After an Invidious failure, explicitly confirm a switch to direct YouTube playback when desired;
+  this contacts YouTube directly
 - Route remote requests through an HTTP or SOCKS5 proxy with optional username/password
   authentication; proxy passwords are encrypted with Android Keystore and excluded from backups
 - Keep local and LAN traffic outside the proxy so device synchronization and casting remain available
 - Independently enable, disable, or clear watch history, playback positions, search history, cached
   metadata, and cookies
 
-### Device synchronization
+### Sync highlights
 
 - Encrypted peer-to-peer pairing between trusted WizeStream devices using a one-time QR code
-- Manual synchronization and automatic background synchronization over Wi-Fi or Ethernet
+- Manual synchronization and automatic background synchronization over Wi-Fi or Ethernet, with
+  an optional charging-only constraint for scheduled attempts
 - Synchronization of local profile identities plus profile-scoped subscriptions, feed groups,
-  local and remote playlists, watch history, and playback progress; home tabs, content filters,
-  channel playback profiles, allowlisted settings, optional search history, and completed-download
-  metadata remain app-wide
+  local and remote playlists, watch history, playback progress, and optional search history
+- Synchronize home tabs, content-filter selections, blocked content, channel playback profiles,
+  allowlisted settings, learning notes, optional lesson difficulty, and completed-download metadata
+- Choose which supported data categories to synchronize with each paired device
 - A **Download on this device** action when synchronized download metadata has no matching local file
 
 See [Device synchronization](#device-synchronization) for behavior, limitations, and setup.
@@ -377,14 +556,17 @@ and the other scans it. The pairing code expires after five minutes and can be u
 After pairing, use **Sync now** for an immediate exchange or leave **Automatic background
 synchronization** enabled. Background synchronization runs approximately once per hour when the
 device has sufficient battery and can reach a trusted device on the same Wi-Fi or Ethernet network.
+Enable **Automatic sync only while charging** to require power for scheduled attempts. Manual sync
+and requests from paired devices remain available; this option does not create a nighttime schedule.
 
 Supported synchronized data includes:
 
-- Subscriptions and feed groups
+- Local profile identities, subscriptions, and feed groups
 - Local and remote playlists
 - Watch history and playback progress
 - Home tabs, content-filter selections, channel playback profiles, and allowlisted settings
-- Search history when explicitly enabled on both devices
+- Profile-scoped search history when explicitly enabled on both devices
+- Blocked content, learning notes, and optional lesson difficulty ratings
 - Completed-download metadata
 
 Synchronization uses an encrypted peer-to-peer connection between paired devices. Downloaded media
@@ -539,24 +721,10 @@ WizeStream is under active development as an independent NewPipe-based client. C
 include Material 3 Expressive polish, playback reliability, local-first features, service
 compatibility, and release readiness.
 
-Completed or in-progress areas include:
-
-- Public WizeStream identity
-- Debug and release identity separation
-- Material 3 theme colors
-- Dynamic and manual theme color handling
-- Bottom navigation and main-tab polish
-- About-screen attribution
-- Player gestures and pinned-video behavior
-- Secure device pairing and peer-to-peer synchronization
-- Local profile management and active-profile switching
-- Automatic background synchronization and download-metadata recovery
-- Search filters, channel sorting, podcast tabs, and channel playback profiles
-- Multi-audio selection and clearer audio-track labels
-- Dialog, snackbar, settings, video-detail, and download UI polish
-- Release-signing workflow support
-
-High-risk areas receive dedicated QA before broad behavior changes.
+The [feature overview](#features) describes implemented capabilities. Follow
+[open issues](https://github.com/wizdom13/WizeStream/issues),
+[pull requests](https://github.com/wizdom13/WizeStream/pulls), and the
+[release history](docs/changelogs.md) for ongoing work and availability.
 
 ---
 
@@ -573,6 +741,12 @@ Special thanks to [IzzySoft](https://github.com/IzzySoft) for the independent re
 testing, precise diagnostics, and patient guidance that helped make WizeStream releases portable
 and reproducible across independent build environments, and for distributing WizeStream through
 [IzzyOnDroid](https://apt.izzysoft.de/packages/org.wisso.newpipematerial).
+
+### Community theme packs
+
+Combine built-in light, dark, AMOLED, and accent palettes through **Settings → Appearance → Theme packs**. Preview and import a JSON pack, export your current appearance, or restore your previous settings. Version 2 adds bounded glass surfaces on main navigation, native vinyl/pocket/cassette listening styles, and embedded PNG skins and player icons in the same file. Existing version 1 palette packs remain compatible.
+
+See the [theme creator guide](doc/themes/README.md) for the complete format, validation rules, examples, testing checklist, and sharing instructions.
 
 ### Integrated extractor source
 
@@ -608,13 +782,15 @@ Please report issues carefully:
 
 ---
 
-## Donate
+## Star History
 
-To support upstream NewPipe, see its official donation page:
-
-https://newpipe.net/donate
-
-Upstream donations go to the upstream NewPipe project, not automatically to WizeStream.
+<a href="https://www.star-history.com/?repos=wizdom13%2FWizeStream&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=wizdom13/WizeStream&type=date&theme=dark&logscale&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=wizdom13/WizeStream&type=date&logscale&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=wizdom13/WizeStream&type=date&logscale&legend=top-left" />
+ </picture>
+</a>
 
 ---
 

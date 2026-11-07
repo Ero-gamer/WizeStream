@@ -52,7 +52,25 @@ class FeedDatabaseManager @JvmOverloads constructor(
         scope: FeedScope,
         sortByDiscovery: Boolean = false
     ): Maybe<List<StreamWithState>> {
-        return feedTable.getStreams(
+        return observeStreams(
+            groupId,
+            includePlayedStreams,
+            includePartiallyPlayedStreams,
+            includeFutureStreams,
+            scope,
+            sortByDiscovery
+        ).firstElement()
+    }
+
+    fun observeStreams(
+        groupId: Long,
+        includePlayedStreams: Boolean,
+        includePartiallyPlayedStreams: Boolean,
+        includeFutureStreams: Boolean,
+        scope: FeedScope,
+        sortByDiscovery: Boolean = false
+    ): Flowable<List<StreamWithState>> {
+        return feedTable.observeStreams(
             activeProfileId,
             groupId,
             includePlayedStreams,
@@ -60,7 +78,9 @@ class FeedDatabaseManager @JvmOverloads constructor(
             if (includeFutureStreams) null else OffsetDateTime.now(),
             scope.serviceId,
             scope.youtubeModeMask,
-            sortByDiscovery
+            sortByDiscovery,
+            // A long-lived observation must include uploads published after it began.
+            useCurrentTime = !includeFutureStreams
         )
     }
 
@@ -151,7 +171,8 @@ class FeedDatabaseManager @JvmOverloads constructor(
         items: List<StreamInfoItem>,
         youtubeModeMask: Int = SubscriptionEntity.YOUTUBE_MODE_REGULAR,
         oldestAllowedDate: OffsetDateTime = FEED_OLDEST_ALLOWED_DATE,
-        uploaderAvatarUrl: String? = null
+        uploaderAvatarUrl: String? = null,
+        isComplete: Boolean = true
     ) {
         val itemsToInsert = items.mapNotNull { stream ->
             val uploadDate = stream.uploadDate
@@ -169,7 +190,9 @@ class FeedDatabaseManager @JvmOverloads constructor(
             .groupBy { it.streamId }.mapValues { (_, memberships) -> memberships.minOf { it.firstDiscoveredAt } }
         val discoveredAt = System.currentTimeMillis()
         val modeMasks = youtubeModeMasks(youtubeModeMask)
-        modeMasks.forEach { feedTable.unlinkOldLivestreams(subscriptionId, it) }
+        if (isComplete) {
+            modeMasks.forEach { feedTable.unlinkOldLivestreams(subscriptionId, it) }
+        }
 
         if (itemsToInsert.isNotEmpty()) {
             val streamEntities = itemsToInsert.map { item ->

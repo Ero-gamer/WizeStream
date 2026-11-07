@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -31,6 +32,10 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
 
     private final Rect globalRect = new Rect();
     private boolean skippingInterception = false;
+    private final int touchSlop;
+    private boolean pendingPageGesture;
+    private float initialTouchX;
+    private float initialTouchY;
     private int playerPeekHeight;
     private int bottomSystemBarInset;
     @Nullable
@@ -83,6 +88,7 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
     public CustomBottomSheetBehavior(@NonNull final Context context,
                                      @Nullable final AttributeSet attrs) {
         super(context, attrs);
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         addBottomSheetCallback(bottomNavigationCallback);
     }
 
@@ -135,6 +141,20 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
     public boolean onInterceptTouchEvent(@NonNull final CoordinatorLayout parent,
                                          @NonNull final FrameLayout child,
                                          @NonNull final MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            initialTouchX = event.getX();
+            initialTouchY = event.getY();
+            pendingPageGesture = getState() == STATE_EXPANDED
+                    && parent.isPointInChildBounds(child, (int) initialTouchX, (int) initialTouchY)
+                    && (isShown(child, R.id.loading_progress_bar)
+                    || isShown(child, R.id.loading_panel)
+                    || isShown(child, R.id.error_panel));
+        } else if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN
+                || event.getActionMasked() == MotionEvent.ACTION_CANCEL
+                || event.getActionMasked() == MotionEvent.ACTION_UP) {
+            pendingPageGesture = false;
+        }
+
         // Drop following when action ends
         if (event.getAction() == MotionEvent.ACTION_CANCEL
                 || event.getAction() == MotionEvent.ACTION_UP) {
@@ -159,8 +179,16 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
                 && event.getAction() == MotionEvent.ACTION_DOWN) {
             // Without overriding scrolling will not work when user touches these elements
             for (final int element : skipInterceptionOfElements) {
+                if (element == R.id.detail_content_root_layout
+                        && (isShown(child, R.id.loading_progress_bar)
+                        || isShown(child, R.id.loading_panel)
+                        || isShown(child, R.id.error_panel))) {
+                    // Details loading, media buffering and extraction errors use different
+                    // panels. Keep their title area draggable in all three states.
+                    continue;
+                }
                 final View view = child.findViewById(element);
-                if (view != null) {
+                if (view != null && view.isShown()) {
                     final boolean visible = view.getGlobalVisibleRect(globalRect);
                     if (visible
                             && globalRect.contains((int) event.getRawX(), (int) event.getRawY())) {
@@ -179,7 +207,21 @@ public class CustomBottomSheetBehavior extends BottomSheetBehavior<FrameLayout> 
             }
         }
 
-        return super.onInterceptTouchEvent(parent, child, event);
+        final boolean intercepted = super.onInterceptTouchEvent(parent, child, event);
+        // Material's drag helper can hit a hidden sibling (e.g. the dismissed splash).
+        // Its fallback requires a nested scrolling child, absent on loading/error pages.
+        // Take ownership of a downward drag here; onTouchEvent then captures this sheet.
+        final float deltaX = event.getX() - initialTouchX;
+        final float deltaY = event.getY() - initialTouchY;
+        return intercepted || (pendingPageGesture && isDraggable() && child.isShown()
+                && getState() == STATE_EXPANDED
+                && event.getActionMasked() == MotionEvent.ACTION_MOVE
+                && deltaY > touchSlop && deltaY > Math.abs(deltaX));
+    }
+
+    private static boolean isShown(@NonNull final View root, final int id) {
+        final View view = root.findViewById(id);
+        return view != null && view.isShown();
     }
 
     private void beginPlayerTransition(@NonNull final View bottomSheet) {

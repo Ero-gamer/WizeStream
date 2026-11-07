@@ -54,6 +54,7 @@ internal class PlayerEventDispatcher(private val player: Player) {
     }
 
     fun notifyQueueUpdate() {
+        player.queueRecovery.checkpoint(true)
         val queue = player.playQueue ?: return
         fragmentListener?.onQueueUpdate(queue)
         activityListener?.onQueueUpdate(queue)
@@ -75,6 +76,7 @@ internal class PlayerEventDispatcher(private val player: Player) {
     }
 
     fun notifyPlaybackUpdate() {
+        org.schabi.newpipe.player.widget.PlaybackWidget.update(player.context, player)
         val queue = player.playQueue
         if (player.exoPlayerIsNull() || queue == null) {
             return

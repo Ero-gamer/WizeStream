@@ -15,11 +15,14 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.schabi.newpipe.R;
 import org.schabi.newpipe.learning.LearningMode;
+import org.schabi.newpipe.profiles.KidsMode;
+import org.schabi.newpipe.profiles.KidsModeDialogs;
 import org.schabi.newpipe.profiles.ProfileDeletionManager;
 import org.schabi.newpipe.profiles.ProfileIcon;
 import org.schabi.newpipe.profiles.ProfileManager;
 import org.schabi.newpipe.profiles.ProfilePolicy;
 import org.schabi.newpipe.profiles.ProfileRecord;
+import org.schabi.newpipe.profiles.ProfileTransferDialog;
 
 import java.util.List;
 
@@ -60,6 +63,15 @@ public final class ProfilesSettingsFragment extends BasePreferenceFragment {
                             ProfileManager.getActiveProfileId(requireContext()), (Boolean) value);
                     return true;
                 });
+        final SwitchPreferenceCompat kidsMode = findPreference("profile_kids_mode");
+        kidsMode.setOnPreferenceChangeListener((preference, value) -> {
+            KidsModeDialogs.configure(requireContext(), (Boolean) value, this::refreshPreferences);
+            return false;
+        });
+        findPreference("profile_parent_pin").setOnPreferenceClickListener(preference -> {
+            KidsModeDialogs.changePin(requireContext());
+            return true;
+        });
         bindListeners(createPreference);
         refreshPreferences();
     }
@@ -199,31 +211,36 @@ public final class ProfilesSettingsFragment extends BasePreferenceFragment {
 
     private void showProfileActionsDialog() {
         final ProfileRecord current = ProfileManager.getActiveProfile(requireContext());
-        if (current.getId().equals(ProfileManager.DEFAULT_PROFILE_ID)) {
-            Toast.makeText(
-                    requireContext(),
-                    R.string.profile_delete_default_unavailable,
-                    Toast.LENGTH_SHORT
-            ).show();
-            return;
-        }
-
         final String displayName = ProfileManager.getDisplayName(requireContext(), current);
         new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(getString(R.string.profile_actions_dialog_title, displayName))
                 .setItems(
-                        new CharSequence[] {getString(R.string.profile_delete_title)},
-                        (dialog, which) -> showDeleteProfileDialog())
+                        new CharSequence[] {getString(R.string.profile_make_default),
+                            getString(R.string.profile_transfer_action),
+                            getString(R.string.profile_delete_title)},
+                        (dialog, which) -> {
+                            if (which == 0) {
+                                ProfileManager.setDefaultProfile(requireContext(), current.getId());
+                                refreshPreferences();
+                                Toast.makeText(requireContext(), R.string.profile_default_changed,
+                                        Toast.LENGTH_SHORT).show();
+                            } else if (which == 1) {
+                                ProfileTransferDialog.show(this, disposables,
+                                        this::refreshPreferences);
+                            } else {
+                                showDeleteProfileDialog();
+                            }
+                        })
                 .setNegativeButton(R.string.cancel, null)
                 .show();
     }
 
     private void showDeleteProfileDialog() {
         final ProfileRecord current = ProfileManager.getActiveProfile(requireContext());
-        if (current.getId().equals(ProfileManager.DEFAULT_PROFILE_ID)) {
+        if (!ProfileManager.canDeleteProfile(requireContext(), current.getId())) {
             Toast.makeText(
                     requireContext(),
-                    R.string.profile_delete_default_unavailable,
+                    R.string.profile_delete_choose_default,
                     Toast.LENGTH_SHORT
             ).show();
             return;
@@ -282,6 +299,8 @@ public final class ProfilesSettingsFragment extends BasePreferenceFragment {
         }
 
         final ProfileRecord active = ProfileManager.getActiveProfile(requireContext());
+        final SwitchPreferenceCompat kidsMode = findPreference("profile_kids_mode");
+        kidsMode.setChecked(KidsMode.isEnabled(requireContext(), active.getId()));
         activePreference.setEntries(entries);
         final SwitchPreferenceCompat learning = requirePreference(
                 R.string.learning_profile_included_key);
@@ -301,7 +320,7 @@ public final class ProfilesSettingsFragment extends BasePreferenceFragment {
         iconPreference.setValue(active.getIconKey());
         iconPreference.setSummary(iconPreference.getEntry());
 
-        actionsPreference.setEnabled(!active.getId().equals(ProfileManager.DEFAULT_PROFILE_ID));
+        actionsPreference.setEnabled(profiles.size() > 1);
     }
 
     private int iconLabel(@NonNull final ProfileIcon icon) {

@@ -22,6 +22,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.schabi.newpipe.App;
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.profiles.KidsMode;
 import org.schabi.newpipe.error.ErrorInfo;
 import org.schabi.newpipe.error.ErrorUtil;
 import org.schabi.newpipe.error.UserAction;
@@ -34,6 +35,7 @@ import org.schabi.newpipe.player.helper.PlayerHolder;
 import org.schabi.newpipe.util.StreamTypeUtil;
 import org.schabi.newpipe.util.ThemeHelper;
 import org.schabi.newpipe.util.external_communication.KoreUtils;
+import org.schabi.newpipe.util.external_communication.TubeBeamUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -350,6 +352,17 @@ public final class InfoItemDialog {
         }
 
         /**
+         * Adds the {@link StreamDialogDefaultEntry#SEND_TO_TV} entry if TubeBeam is installed.
+         * @return the current {@link Builder} instance
+         */
+        public Builder addSendToTvEntriesIfNeeded() {
+            if (TubeBeamUtils.shouldShowSendToTv(context, infoItem.getServiceId())) {
+                addEntry(StreamDialogDefaultEntry.SEND_TO_TV);
+            }
+            return this;
+        }
+
+        /**
          * Add the entries which are usually at the top of the action list.
          * <br/>
          * This method adds the "enqueue" (see {@link #addEnqueueEntriesIfNeeded()})
@@ -367,6 +380,10 @@ public final class InfoItemDialog {
          * @return the current {@link Builder} instance
          */
         public Builder addDefaultEndEntries() {
+            if (org.schabi.newpipe.util.MusicAlbumNavigation.isAvailable(
+                    infoItem.getServiceId(), infoItem.getAlbumUrl())) {
+                addEntry(StreamDialogDefaultEntry.OPEN_ALBUM);
+            }
             addEntry(StreamDialogDefaultEntry.DOWNLOAD);
             if (org.schabi.newpipe.download.ExternalDownloader.isEnabled(context)
                     && infoItem.getServiceId() >= 0) {
@@ -381,8 +398,10 @@ public final class InfoItemDialog {
                     StreamDialogDefaultEntry.BLOCK_CHANNEL
             );
             addPlayWithKodiEntryIfNeeded();
+            addSendToTvEntriesIfNeeded();
             addLearningContentEntryIfNeeded();
-            if (infoItem.getServiceId() >= 0) {
+            if (infoItem.getServiceId() >= 0
+                    && KidsMode.isSubscriptionAllowed(context, infoItem.getServiceId())) {
                 addEntry(StreamDialogDefaultEntry.SUBSCRIBE_CHANNEL);
                 addEntry(StreamDialogDefaultEntry.CHANNEL_GROUPS);
             }

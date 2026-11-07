@@ -39,9 +39,10 @@ internal class SubscriptionSortController(
     private val disposables = CompositeDisposable()
     private val model = SubscriptionSortModel()
     private var channels = emptyMap<String, SubscriptionEntity>()
-    private var scope = FeedScope.from(context)
+    private var scope = FeedScope(FeedScope.ALL_SERVICES, 0)
     private var query = ""
     private var rows = emptyList<SubscriptionLayout.Entry>()
+    private var pendingAnchor: SubscriptionScrollAnchor? = null
     private var loaded = false
     private var dragging = false
     private var dragChanged = false
@@ -113,14 +114,13 @@ internal class SubscriptionSortController(
         disposables.add(
             Flowable.combineLatest(
                 manager.getSubscriptionsForScope(FeedScope(FeedScope.ALL_SERVICES, 0)),
-                store.observe(),
-                FeedScope.changes(context)
-            ) { entities, saved, currentScope -> Triple(entities, saved, currentScope) }
+                store.observe()
+            ) { entities, saved -> Pair(entities, saved) }
                 .subscribeOn(Schedulers.io()).observeOn(AndroidSchedulers.mainThread())
-                .subscribe({ (entities, _, currentScope) ->
+                .subscribe({ (entities, _) ->
                     // Preference emissions may queue while the user performs another move.
                     // Read the current layout instead of replaying an older queued snapshot.
-                    update(entities, store.read(), currentScope)
+                    update(entities, store.read(), FeedScope(FeedScope.ALL_SERVICES, 0))
                 }, {
                     loaded = false
                     refresh()
@@ -136,6 +136,28 @@ internal class SubscriptionSortController(
         scope = currentScope
         loaded = true
         if (changed) refresh()
+    }
+
+    fun scrollTo(anchor: SubscriptionScrollAnchor?) {
+        pendingAnchor = anchor
+        if (anchor == null) {
+            (binding.subscriptionSortList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(0, 0)
+        }
+        applyPendingAnchor()
+    }
+
+    fun scrollAnchor(): SubscriptionScrollAnchor? = SubscriptionScrollAnchor.capture(binding.subscriptionSortList) { position ->
+        rows.getOrNull(position)?.key
+    }
+
+    private fun applyPendingAnchor() {
+        val anchor = pendingAnchor ?: return
+        if (!loaded) return
+        val position = rows.indexOfFirst { it.key == anchor.key }
+        if (position >= 0) {
+            (binding.subscriptionSortList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(position, anchor.offset)
+        }
+        pendingAnchor = null
     }
 
     fun setQuery(value: String) {
@@ -164,7 +186,7 @@ internal class SubscriptionSortController(
     private fun rebuildRows() {
         rows = model.entries.filter { entry ->
             entry.separator != null || channels[entry.key]?.let {
-                scope.includes(it) && ContextualSearchHelper.matches(query, it.name, it.url)
+                scope.includes(it) && (SubscriptionSearch.matches(query, it) || ContextualSearchHelper.matches(query, it.url))
             } == true
         }
     }
@@ -172,6 +194,7 @@ internal class SubscriptionSortController(
     private fun refresh() {
         rebuildRows()
         adapter.notifyDataSetChanged()
+        applyPendingAnchor()
         binding.subscriptionSortCount.text = context.getString(R.string.subscription_sort_selected, model.selected.size)
         binding.subscriptionSortSelect.isEnabled = loaded && rows.any { it.separator == null }
         binding.subscriptionSortMove.isEnabled = loaded && model.selected.isNotEmpty()

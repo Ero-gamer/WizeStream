@@ -98,6 +98,8 @@ public final class PlayerService extends MediaLibraryService {
     @Override
     public void onCreate() {
         super.onCreate();
+        org.schabi.newpipe.download.offline.OfflineLibrary.playbackStarted();
+        org.schabi.newpipe.local.cleanup.ExitCleanup.playerStarted(this);
 
         if (DEBUG) {
             Log.d(TAG, "onCreate() called");
@@ -228,6 +230,10 @@ public final class PlayerService extends MediaLibraryService {
         if (player != null && !player.videoPlayerSelected()) {
             return;
         }
+        if (org.schabi.newpipe.local.cleanup.ExitCleanup.isEnabled(this)) {
+            destroyPlayerAndStopService();
+            return;
+        }
         onDestroy();
         // Unload from memory completely
         Runtime.getRuntime().halt(0);
@@ -244,6 +250,8 @@ public final class PlayerService extends MediaLibraryService {
         mediaSession.release();
         browserExoPlayer.release();
         mediaBrowserImpl.dispose();
+        org.schabi.newpipe.download.offline.OfflineLibrary.playbackStopped();
+        org.schabi.newpipe.local.cleanup.ExitCleanup.playerStopped(this);
         super.onDestroy();
     }
 

@@ -184,8 +184,7 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
             final JsonArray transcodings = track.getObject("media").getArray("transcodings");
             if (!isNullOrEmpty(transcodings)) {
                 // Get information about what stream formats are available
-                extractAudioStreams(transcodings, checkMp3ProgressivePresence(transcodings),
-                        audioStreams);
+                extractAudioStreams(transcodings, audioStreams);
             }
 
             extractDownloadableFileIfAvailable(audioStreams);
@@ -196,19 +195,11 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
         return audioStreams;
     }
 
-    private static boolean checkMp3ProgressivePresence(@Nonnull final JsonArray transcodings) {
-        return transcodings.stream()
-                .filter(JsonObject.class::isInstance)
-                .map(JsonObject.class::cast)
-                .anyMatch(transcodingJsonObject -> transcodingJsonObject.getString("preset")
-                        .contains("mp3") && transcodingJsonObject.getObject("format")
-                        .getString("protocol").equals("progressive"));
-    }
-
     @Nonnull
     private String getTranscodingUrl(final String endpointUrl)
             throws IOException, ExtractionException {
-        final String apiStreamUrl = endpointUrl + "?client_id=" + clientId();
+        final String apiStreamUrl = buildTranscodingApiUrl(endpointUrl, clientId(),
+                track.getString("track_authorization"));
         final String response = NewPipe.getDownloader().get(apiStreamUrl).responseBody();
         final JsonObject urlObject;
         try {
@@ -218,6 +209,26 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
         }
 
         return urlObject.getString("url");
+    }
+
+    static String buildTranscodingApiUrl(final String endpointUrl,
+                                         final String soundcloudClientId,
+                                         @Nullable final String trackAuthorization) {
+        final StringBuilder requestUrl = new StringBuilder(endpointUrl)
+                .append("?client_id=")
+                .append(soundcloudClientId);
+        if (!isNullOrEmpty(trackAuthorization)) {
+            requestUrl.append("&track_authorization=").append(trackAuthorization);
+        }
+        return requestUrl.toString();
+    }
+
+    static boolean isSupportedTranscoding(final String preset, final String protocol) {
+        return !isNullOrEmpty(protocol)
+                && !protocol.contains("encrypted")
+                && (preset.contains("mp3")
+                || preset.contains("opus")
+                || preset.contains("aac_160k"));
     }
 
     @Nullable
@@ -240,7 +251,6 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
     }
 
     private void extractAudioStreams(@Nonnull final JsonArray transcodings,
-                                     final boolean mp3ProgressiveInStreams,
                                      final List<AudioStream> audioStreams) {
         transcodings.stream()
                 .filter(JsonObject.class::isInstance)
@@ -255,6 +265,10 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
                         final String preset = transcoding.getString("preset", ID_UNKNOWN);
                         final String protocol = transcoding.getObject("format")
                                 .getString("protocol");
+                        if (!isSupportedTranscoding(preset, protocol)) {
+                            return;
+                        }
+
                         final AudioStream.Builder builder = new AudioStream.Builder()
                                 .setId(preset);
 
@@ -266,12 +280,6 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
                         builder.setContent(getTranscodingUrl(url), true);
 
                         if (preset.contains("mp3")) {
-                            // Don't add the MP3 HLS stream if there is a progressive stream
-                            // present because both have the same bitrate
-                            if (mp3ProgressiveInStreams && isHls) {
-                                return;
-                            }
-
                             builder.setMediaFormat(MediaFormat.MP3);
                             builder.setAverageBitrate(128);
 
@@ -279,6 +287,9 @@ public class SoundcloudStreamExtractor extends StreamExtractor {
                             builder.setMediaFormat(MediaFormat.OPUS);
                             builder.setAverageBitrate(64);
                             builder.setDeliveryMethod(DeliveryMethod.HLS);
+                        } else if (preset.contains("aac_160k")) {
+                            builder.setMediaFormat(MediaFormat.M4A);
+                            builder.setAverageBitrate(160);
                         } else {
                             // Unknown format, skip to the next audio stream
                             return;

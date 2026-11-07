@@ -179,6 +179,15 @@ internal class PlayerLifecycleController(
     fun setRecovery() {
         val queue = player.playQueue ?: return
         if (player.exoPlayerIsNull()) return
+        // The queue synchronizer consumes explicit timestamps/resume positions once the media
+        // source is ready. UI attachment must not replace that pending seek with the engine's 0.
+        val item = queue.item ?: return
+        if (item !== player.currentItem &&
+            item.recoveryPosition != org.schabi.newpipe.player.playqueue.PlayQueueItem.RECOVERY_UNSET
+        ) {
+            return
+        }
+        if (player.exoPlayer.currentTimeline.isEmpty) return
         val position = MathUtils.clamp(
             player.exoPlayer.currentPosition,
             0,
@@ -210,7 +219,7 @@ internal class PlayerLifecycleController(
         if (Player.DEBUG) {
             Log.d(Player.TAG, "initPlayer() called with: playOnReady = [$playOnReady]")
         }
-        val trackSelector = DefaultTrackSelector(context, PlayerHelper.getQualitySelector()).apply {
+        val trackSelector = DefaultTrackSelector(context, org.schabi.newpipe.player.helper.PlaybackQualitySelection.create()).apply {
             if (trackSelectionParameters != null) {
                 setParameters(trackSelectionParameters)
             }
@@ -220,13 +229,19 @@ internal class PlayerLifecycleController(
             .setTrackSelector(trackSelector)
             .setBandwidthMeter(player.getBandwidthMeterForLifecycle())
             .setLoadControl(loadController)
+            .setLivePlaybackSpeedControl(LiveBufferHeadroom.create())
             .setUsePlatformDiagnostics(false)
             .build()
         player.setTrackSelectorForLifecycle(trackSelector)
         player.setLoadControllerForLifecycle(loadController)
         player.setExoPlayerForLifecycle(exoPlayer)
         player.videoAdjustments.attach(exoPlayer)
+        player.playbackInformation.attach(exoPlayer)
+        player.abRepeat.attach(exoPlayer)
+        player.subtitleTiming.setOffset(0)
+        exoPlayer.addListener(player.subtitleTiming)
         exoPlayer.addListener(player)
+        exoPlayer.addAnalyticsListener(LiveMediaLoadRecovery(exoPlayer, errorController))
         if (Player.DEBUG) {
             exoPlayer.addAnalyticsListener(
                 LiveLoadDiagnostics(exoPlayer) {
@@ -263,6 +278,10 @@ internal class PlayerLifecycleController(
         // a surface-detach timeout while the player is deliberately shutting down; surfacing that
         // expected teardown failure would show an erroneous playback error to the user.
         player.videoAdjustments.detach()
+        player.playbackInformation.detach()
+        player.abRepeat.detach()
+        exoPlayer?.removeListener(player.subtitleTiming)
+        player.subtitleTiming.setOffset(0)
         exoPlayer?.removeListener(player)
         player.UIs().call(PlayerUi::destroyPlayer)
         audioController.releaseAudioSession()
@@ -273,6 +292,7 @@ internal class PlayerLifecycleController(
             }
         } finally {
             player.clearExoPlayerForLifecycle()
+            org.schabi.newpipe.player.widget.PlaybackWidget.update(context, null)
             if (trackSelector != null) {
                 player.clearTrackSelectorForLifecycle(trackSelector)
             }

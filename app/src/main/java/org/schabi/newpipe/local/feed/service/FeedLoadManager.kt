@@ -22,13 +22,10 @@ import org.schabi.newpipe.database.stream.StreamUploadDate
 import org.schabi.newpipe.database.subscription.NotificationMode
 import org.schabi.newpipe.database.subscription.SubscriptionEntity
 import org.schabi.newpipe.extractor.Info
-import org.schabi.newpipe.extractor.InfoItem
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.channel.ChannelTabInfo
 import org.schabi.newpipe.extractor.feed.FeedExtractor
 import org.schabi.newpipe.extractor.feed.FeedInfo
-import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.ktx.getStringSafe
 import org.schabi.newpipe.local.feed.FeedDatabaseManager
@@ -159,19 +156,27 @@ class FeedLoadManager @JvmOverloads constructor(
                     )
                 )
             }
-            .filter { !cancelSignal.get() }
-            .observeOn(AndroidSchedulers.mainThread())
-            .doOnNext(NotificationConsumer())
-            .observeOn(Schedulers.io())
-            .buffer(BUFFER_COUNT_BEFORE_INSERT)
-            .doOnNext(DatabaseConsumer())
-            .subscribeOn(Schedulers.io())
-            .toList()
-            .flatMap { x -> postProcessFeed().toSingleDefault(x.flatten()) }
+            .let(::storeResults)
     }
 
+    /** Serialized persistence shared by manual and scheduled refreshes. */
+    internal fun storeResults(results: Flowable<Notification<FeedUpdateInfo>>): Single<List<Notification<FeedUpdateInfo>>> = results
+        .filter { !cancelSignal.get() }
+        .observeOn(Schedulers.io())
+        // Persist each completed channel before announcing progress. Slow or failed
+        // channels must not hold back content already retrieved from other channels.
+        .doOnNext(DatabaseConsumer())
+        .doOnNext(NotificationConsumer())
+        .subscribeOn(Schedulers.io())
+        .toList()
+        .flatMap { results -> postProcessFeed().toSingleDefault(results) }
+        .doOnError { cancel() }
+        .doOnDispose(::cancel)
+
     fun cancel() {
-        cancelSignal.set(true)
+        synchronized(cancelSignal) {
+            cancelSignal.set(true)
+        }
         cancelNotifier.onNext(true)
     }
 
@@ -293,32 +298,16 @@ class FeedLoadManager @JvmOverloads constructor(
                 errors.addAll(channelInfo.errors)
                 originalInfo = channelInfo
 
-                streams = channelInfo.tabs
-                    .filter { tab ->
-                        ChannelTabHelper.fetchFeedChannelTab(
-                            context,
-                            defaultSharedPreferences,
-                            tab
-                        )
-                    }
-                    .map {
-                        Pair(
-                            getChannelTab(subscriptionEntity.serviceId, it, true)
-                                .onErrorReturn(storeOriginalErrorAndRethrow)
-                                .blockingGet(),
-                            it
-                        )
-                    }
-                    .flatMap { (channelTabInfo, linkHandler) ->
-                        errors.addAll(channelTabInfo.errors)
-                        loadFeedChannelTabItems(
-                            subscriptionEntity.serviceId,
-                            linkHandler,
-                            channelTabInfo,
-                            errors
-                        )
-                    }
-                    .filterIsInstance<StreamInfoItem>()
+                streams = FeedChannelTabLoader.load(
+                    tabs = channelInfo.tabs.filter { tab ->
+                        ChannelTabHelper.fetchFeedChannelTab(context, defaultSharedPreferences, tab)
+                    },
+                    fetchFirst = { getChannelTab(subscriptionEntity.serviceId, it, true).blockingGet() },
+                    fetchMore = { tab, page -> getMoreChannelTabItems(subscriptionEntity.serviceId, tab, page).blockingGet() },
+                    isCancelled = cancelSignal::get,
+                    oldestAllowedDate = FeedDatabaseManager.FEED_OLDEST_ALLOWED_DATE,
+                    errors = errors
+                ).filterIsInstance<StreamInfoItem>()
             }
 
             FeedItemDateResolver.applyApproximateDates(
@@ -346,50 +335,6 @@ class FeedLoadManager @JvmOverloads constructor(
         }
     }
 
-    private fun loadFeedChannelTabItems(
-        serviceId: Int,
-        linkHandler: ListLinkHandler,
-        channelTabInfo: ChannelTabInfo,
-        errors: MutableList<Throwable>
-    ): List<InfoItem> {
-        val collectedItems = channelTabInfo.relatedItems.toMutableList()
-        var pageItems = channelTabInfo.relatedItems
-        var nextPage = channelTabInfo.nextPage
-        var continuationPagesLoaded = 0
-
-        while (!cancelSignal.get()) {
-            val sourceUploadDates = pageItems
-                .filterIsInstance<StreamInfoItem>()
-                .mapNotNull { it.uploadDate?.offsetDateTime() }
-
-            if (!FeedExtractionPlanner.shouldLoadFeedContinuation(
-                    pageItemCount = pageItems.size,
-                    sourceUploadDates = sourceUploadDates,
-                    hasNextPage = nextPage != null,
-                    continuationPagesLoaded = continuationPagesLoaded,
-                    oldestAllowedDate = FeedDatabaseManager.FEED_OLDEST_ALLOWED_DATE
-                )
-            ) {
-                break
-            }
-
-            val page = nextPage ?: break
-            val infoItemsPage = getMoreChannelTabItems(
-                serviceId,
-                linkHandler,
-                page
-            ).blockingGet()
-
-            errors.addAll(infoItemsPage.errors)
-            collectedItems.addAll(infoItemsPage.items)
-            pageItems = infoItemsPage.items
-            nextPage = infoItemsPage.nextPage
-            continuationPagesLoaded++
-        }
-
-        return collectedItems
-    }
-
     /**
      * Keep the feed and the stream tables small
      * to reduce loading times when trying to display the feed.
@@ -411,11 +356,16 @@ class FeedLoadManager @JvmOverloads constructor(
     }.subscribeOn(Schedulers.io())
 
     private fun postEvent(event: FeedEventManager.Event) {
-        feedScope?.let { FeedEventManager.postEvent(it, event) }
+        synchronized(cancelSignal) {
+            if (!cancelSignal.get()) {
+                feedScope?.let { FeedEventManager.postEvent(it, event) }
+            }
+        }
     }
 
     private inner class NotificationConsumer : Consumer<Notification<FeedUpdateInfo>> {
         override fun accept(item: Notification<FeedUpdateInfo>) {
+            if (cancelSignal.get()) return
             currentProgress.incrementAndGet()
             currentUpdateDescription = item.value?.name.orEmpty()
             notificationUpdater.onNext(currentUpdateDescription)
@@ -424,57 +374,61 @@ class FeedLoadManager @JvmOverloads constructor(
         }
     }
 
-    private inner class DatabaseConsumer : Consumer<List<Notification<FeedUpdateInfo>>> {
+    private inner class DatabaseConsumer : Consumer<Notification<FeedUpdateInfo>> {
 
-        override fun accept(list: List<Notification<FeedUpdateInfo>>) {
+        override fun accept(notification: Notification<FeedUpdateInfo>) {
             feedDatabaseManager.database().runInTransaction {
-                for (notification in list) {
-                    when {
-                        notification.isOnNext -> {
-                            val info = notification.value!!
-                            val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
-                                ?: info.youtubeModeMask
-
-                            notification.value!!.newStreams = filterNewStreams(info.streams)
-
-                            feedDatabaseManager.upsertAll(
-                                info.uid,
-                                info.streams,
-                                updateModeMask,
-                                uploaderAvatarUrl = info.avatarUrl
-                            )
-                            subscriptionManager.updateFromInfo(info)
-
-                            if (info.errors.isNotEmpty()) {
-                                feedResultsHolder.addErrors(
-                                    info.errors.map {
-                                        FeedLoadService.RequestException(
-                                            info.uid,
-                                            "${info.serviceId}:${info.url}",
-                                            it
-                                        )
-                                    }
-                                )
-                                feedDatabaseManager.markAsOutdated(info.uid, updateModeMask)
-                            }
+                when {
+                    notification.isOnNext -> {
+                        val info = notification.value!!
+                        // A user can unsubscribe while this channel is still fetching.
+                        if (subscriptionManager.getSubscriptionById(info.uid) == null) {
+                            info.newStreams = emptyList()
+                            return@runInTransaction
                         }
+                        val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
+                            ?: info.youtubeModeMask
 
-                        notification.isOnError -> {
-                            val error = notification.error
-                            feedResultsHolder.addError(error!!)
+                        notification.value!!.newStreams = filterNewStreams(info.streams)
 
-                            if (error is FeedLoadService.RequestException) {
-                                val subscription =
-                                    subscriptionManager.getSubscriptionById(
-                                        error.subscriptionId
-                                    ) ?: continue
-                                val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
-                                    ?: subscription.youtubeModeMask
-                                feedDatabaseManager.markAsOutdated(
-                                    error.subscriptionId,
-                                    updateModeMask
-                                )
-                            }
+                        feedDatabaseManager.upsertAll(
+                            info.uid,
+                            info.streams,
+                            updateModeMask,
+                            uploaderAvatarUrl = info.avatarUrl,
+                            isComplete = info.errors.isEmpty()
+                        )
+                        subscriptionManager.updateFromInfo(info)
+
+                        if (info.errors.isNotEmpty()) {
+                            feedResultsHolder.addErrors(
+                                info.errors.map {
+                                    FeedLoadService.RequestException(
+                                        info.uid,
+                                        "${info.serviceId}:${info.url}",
+                                        it
+                                    )
+                                }
+                            )
+                            feedDatabaseManager.markAsOutdated(info.uid, updateModeMask)
+                        }
+                    }
+
+                    notification.isOnError -> {
+                        val error = notification.error
+                        feedResultsHolder.addError(error!!)
+
+                        if (error is FeedLoadService.RequestException) {
+                            val subscription =
+                                subscriptionManager.getSubscriptionById(
+                                    error.subscriptionId
+                                ) ?: return@runInTransaction
+                            val updateModeMask = feedScope?.takeUnless { it.serviceId == FeedScope.ALL_SERVICES }?.youtubeModeMask
+                                ?: subscription.youtubeModeMask
+                            feedDatabaseManager.markAsOutdated(
+                                error.subscriptionId,
+                                updateModeMask
+                            )
                         }
                     }
                 }
@@ -508,11 +462,6 @@ class FeedLoadManager @JvmOverloads constructor(
          * limited. Dedicated RSS feeds are not delayed.
          */
         private val DELAY_BETWEEN_BATCHES_MILLIS = (500L..1500L)
-
-        /**
-         * Number of items to buffer to mass-insert in the database.
-         */
-        private const val BUFFER_COUNT_BEFORE_INSERT = 20
     }
 }
 
